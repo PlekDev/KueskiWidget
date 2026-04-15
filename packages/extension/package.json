@@ -1,0 +1,26 @@
+{
+  "name": "kueski-extension",
+  "description": "manifest.json description",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt --browser firefox",
+    "dev:chrome": "wxt --browser chrome",
+    "build": "wxt build",
+    "build:firefox": "wxt build --browser firefox",
+    "build:chrome": "wxt build --browser chrome"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@wxt-dev/module-react": "^1.1.5",
+    "typescript": "^5.9.3",
+    "wxt": "^0.20.22"
+  }
+}
