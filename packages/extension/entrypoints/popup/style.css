@@ -1,28 +1,74 @@
 @import "tailwindcss";
 
-/* Reseteo básico para evitar el modo oscuro forzado por Vite */
-:root {
-  background-color: #ffffff;
-  color: #000000;
-}
-
 body {
   margin: 0;
+  padding: 0;
+  background-color: transparent;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   min-height: 100vh;
-  background-color: #f3f4f6; /* Un gris muy claro de fondo */
 }
 
-/* Estilo para el scrollbar como en la imagen */
-::-webkit-scrollbar {
-  width: 8px;
+/* Contenedor principal */
+.popup-container {
+  @apply w-[380px] h-[600px] bg-white rounded-xl overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.1)] relative flex flex-col font-sans border border-gray-200;
 }
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
+
+/* Header de Kueski */
+.kueski-header {
+  @apply bg-gradient-to-br from-[#9333ea] to-[#3b82f6] p-4 shrink-0;
 }
-::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+
+.kueski-header-card {
+  @apply bg-white/20 backdrop-blur-sm rounded-lg p-3 border border-white/10;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #555;
+
+/* Navegación (Tabs) */
+.tabs-container {
+  @apply w-full rounded-none bg-white p-0 h-12 border-b border-gray-200 shrink-0 grid grid-cols-3;
+}
+
+.tab-button {
+  @apply flex items-center justify-center gap-2 text-sm font-medium text-gray-600 rounded-none h-full bg-white transition-colors
+         data-[state=active]:bg-gray-50 data-[state=active]:text-gray-900
+         data-[state=active]:border-b-2 data-[state=active]:border-gray-900 cursor-pointer;
+}
+
+/* Tarjetas de Opciones (PAGOS) */
+.option-card-default {
+  @apply transition-all shadow-sm border border-gray-200 rounded-xl overflow-hidden bg-white;
+}
+
+.option-card-featured {
+  @apply p-4 transition-all shadow-sm border-[#a855f7] border rounded-xl bg-white relative;
+}
+
+.benefit-badge {
+  @apply bg-green-100 text-green-800 text-[9px] h-4 px-1.5 font-bold border-none;
+}
+
+/* Comparativa de Precios (PRECIOS) */
+.price-row {
+  @apply flex items-center justify-between p-3.5 bg-white rounded-lg border border-gray-200 shadow-sm;
+}
+
+.store-icon-container {
+  @apply bg-gray-50 p-2 border border-gray-100 rounded-md;
+}
+
+/* Footer Info */
+.footer-info {
+  @apply bg-gray-50 border-t border-gray-200 mt-auto shrink-0 py-2.5;
+}
+
+.styled-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.styled-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.styled-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
 }

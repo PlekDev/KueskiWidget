@@ -1,122 +1,235 @@
 import { useState } from "react";
 import {
-  Tag,
-  TrendingDown,
-  Check,
-  X,
-  Sparkles,
-  CreditCard,
-  Zap,
+  Zap, CreditCard, Info, ShieldCheck, Star, X, Store, ExternalLink, TrendingDown, Check, Tag, LayoutTemplate, Copy
 } from "lucide-react";
-
-// Asegúrate de que estos nombres coincidan con tus archivos en la carpeta ui/
 import { Card } from "./ui/card";
-import { Button } from "./ui/Button";
+import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/Tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import '../style.css';
+
+interface PaymentOption {
+  provider: string;
+  periods: number;
+  amount: number;
+  total: number;
+  featured: boolean;
+  recommended: boolean;
+  interest: string | null;
+  benefits: string[];
+}
+
+interface PriceComparison {
+  store: string;
+  price: number;
+  shipping: string;
+  cashback: string;
+  status: string;
+  link: string;
+}
+
+interface Coupon {
+  code: string;
+  discount: string;
+  expires: string;
+  verified: boolean;
+}
 
 export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
+  const kueskiOptions: PaymentOption[] = [
+    { provider: 'Kueski Pay', periods: 4, amount: 62.50, total: 250.00, featured: true, recommended: true, interest: '0% interés', benefits: ['Aprobación inmediata', 'Sin tarjeta de crédito', '100% digital'] },
+    { provider: 'Kueski Pay', periods: 6, amount: 41.67, total: 250.00, featured: true, recommended: false, interest: '0% interés', benefits: ['Aprobación inmediata', 'Sin tarjeta de crédito', '100% digital'] },
+    { provider: 'Kueski Pay', periods: 8, amount: 31.25, total: 250.00, featured: true, recommended: false, interest: '0% interés', benefits: ['Aprobación inmediata', 'Sin tarjeta de crédito', '100% digital'] },
+    { provider: 'Tarjeta de Crédito', periods: 1, amount: 250.00, total: 250.00, featured: false, recommended: false, interest: null, benefits: [] },
+    { provider: 'PayPal', periods: 1, amount: 250.00, total: 250.00, featured: false, recommended: false, interest: null, benefits: [] },
+  ];
+
+  const priceComparisons: PriceComparison[] = [
+    { store: 'Amazon', price: 199.99, shipping: 'Free', cashback: '$4.99', status: 'In Stock', link: '#' },
+    { store: 'Best Buy', price: 219.99, shipping: 'Free', cashback: '$6.59', status: 'In Stock', link: '#' },
+  ];
+
+  const coupons: Coupon[] = [
+    { code: 'SAVE20', discount: '20% off your purchase', expires: 'Apr 20, 2026', verified: true },
+    { code: 'FREESHIP', discount: 'Free shipping on orders over $50', expires: 'Apr 30, 2026', verified: true },
+    { code: 'SPRING15', discount: '15% off electronics', expires: 'May 1, 2026', verified: false },
+  ];
+
   return (
-    <div className="w-[380px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col font-sans">
-      {/* Header con Gradiente DealFinder */}
-      <div className="bg-gradient-to-br from-[#6366f1] via-[#8b5cf6] to-[#3b82f6] text-white p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="size-6 fill-white/20" />
-            <h2 className="font-extrabold text-xl tracking-tight">DealFinder</h2>
+    <div className="popup-container">
+      {/* HEADER */}
+      <div className="kueski-header">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-1.5 text-white font-bold text-lg tracking-wide">
+            <Star className="h-5 w-5 fill-white" />
+            <span>DealFinder</span>
           </div>
-          {onClose && (
-            <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full transition-colors">
-              <X className="size-5" />
-            </button>
-          )}
+          <Button
+            variant="ghost" size="icon" onClick={onClose}
+            className="text-white hover:bg-white/20 rounded-full h-8 w-8"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        
-        {/* Banner "Mejor Opción de Pago" */}
-        <div className="bg-white/20 rounded-2xl p-4 backdrop-blur-md border border-white/10 shadow-lg">
-          <div className="flex items-center gap-2 mb-3">
-            <Zap className="size-4 text-yellow-300 fill-yellow-300" />
-            <p className="text-xs font-bold uppercase tracking-wider opacity-90">Mejor Opción de Pago</p>
+
+        <div className="kueski-header-card">
+          <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-sm">
+            <Zap className="h-4 w-4 fill-yellow-300" />
+            Mejor Opción de Pago
           </div>
-          <div className="flex items-center justify-between">
+
+          <div className="flex justify-between items-center">
             <div className="flex flex-col">
-              <span className="text-4xl font-black">$62.50</span>
-              <span className="text-[10px] uppercase font-bold opacity-80 mt-1">por quincena</span>
+              <span className="text-3xl font-extrabold text-white leading-none mb-1">$62.50</span>
+              <span className="text-[11px] text-white/90">por quincena</span>
             </div>
-            <div className="flex flex-col items-center border-x border-white/20 px-4">
-              <span className="text-3xl font-black">4</span>
-              <span className="text-[10px] uppercase font-bold opacity-80">quincenas</span>
+
+            <div className="flex flex-col items-center">
+              <span className="text-xl font-bold text-white leading-none mb-1">4</span>
+              <span className="text-[11px] text-white/90">quincenas</span>
             </div>
-            <div className="bg-[#00e676] text-[#004d40] px-3 py-1 rounded-full text-xs font-black shadow-sm">
-              0% interés
+
+            <div>
+              <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-3 py-1 rounded-md">0% interés</Badge>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs Estilo Figma */}
-      <Tabs defaultValue="payment" className="w-full">
-        <TabsList className="w-full grid grid-cols-3 bg-gray-100 rounded-none h-14 p-0">
-          <TabsTrigger value="payment" className="data-[state=active]:bg-white data-[state=active]:shadow-none rounded-none border-b-2 border-transparent data-[state=active]:border-purple-600 h-full gap-2 font-bold text-gray-600">
-            <CreditCard className="size-4" /> Pago
-          </TabsTrigger>
-          <TabsTrigger value="prices" className="data-[state=active]:bg-white rounded-none border-b-2 border-transparent data-[state=active]:border-purple-600 h-full gap-2 font-bold text-gray-600">
-            <TrendingDown className="size-4" /> Precios
-          </TabsTrigger>
-          <TabsTrigger value="coupons" className="data-[state=active]:bg-white rounded-none border-b-2 border-transparent data-[state=active]:border-purple-600 h-full gap-2 font-bold text-gray-600">
-            <Tag className="size-4" /> Cupones
-          </TabsTrigger>
+      {/* TABS */}
+      <Tabs defaultValue="pago" className="w-full flex-1 flex flex-col min-h-0">
+        <TabsList className="tabs-container grid grid-cols-3">
+          <TabsTrigger value="pago" className="tab-button gap-2"><LayoutTemplate className="h-4 w-4"/> Pago</TabsTrigger>
+          <TabsTrigger value="precios" className="tab-button gap-2"><TrendingDown className="h-4 w-4"/> Precios</TabsTrigger>
+          <TabsTrigger value="cupones" className="tab-button gap-2"><Tag className="h-4 w-4"/> Cupones</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="payment" className="p-5 space-y-4">
-          {/* Card de Kueski Pay */}
-          <Card className="p-5 border-2 border-purple-200 bg-white rounded-2xl shadow-sm relative overflow-hidden">
-             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-black text-2xl text-gray-900">Kueski Pay</h3>
-                  <div className="bg-[#9c27b0] text-white px-2 py-0.5 rounded-lg flex items-center gap-1 text-[10px] font-bold">
-                    <Sparkles className="size-3" /> RECOMENDADO
+        <div className="overflow-y-auto flex-1 bg-white p-4 styled-scrollbar">
+          {/* CONTENIDO 1: PAGOS */}
+          <TabsContent value="pago" className="flex flex-col gap-4 m-0 mt-0">
+            {kueskiOptions.map((opt, i) => (
+              <Card key={i} className={opt.featured ? "option-card-featured" : "option-card-default"}>
+                {opt.featured ? (
+                  <>
+                    <div className="flex items-center flex-wrap gap-2 mb-1">
+                      <span className="font-bold text-lg text-gray-900">{opt.provider}</span>
+                      {opt.recommended && <Badge className="bg-[#a855f7] hover:bg-[#a855f7] text-white border-none gap-1 py-0.5"><Zap className="h-3 w-3 fill-white" /> Recomendado</Badge>}
+                      {opt.interest && <Badge className="bg-[#00E59B] hover:bg-[#00E59B] text-gray-900 border-none font-bold ml-auto">{opt.interest}</Badge>}
+                    </div>
+                    <div className="text-sm text-gray-600 mb-4">{opt.periods} quincenas</div>
+
+                    <div className="bg-gray-50 rounded-xl p-4 mb-4 flex flex-col justify-center border border-gray-100">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl font-extrabold text-[#8b5cf6]">${opt.amount.toFixed(2)}</span>
+                        <span className="text-gray-500 text-sm font-medium">/ quincena</span>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">Total: ${opt.total.toFixed(2)}</div>
+                    </div>
+
+                    <div className="space-y-2 mb-4">
+                      {opt.benefits.map((b, j) => (
+                        <div key={j} className="flex items-center gap-2 text-sm text-gray-600">
+                          <Check className="h-4 w-4 text-[#00E59B] font-bold" />
+                          {b}
+                        </div>
+                      ))}
+                    </div>
+
+                    <Button className="w-full bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold h-12 text-base gap-2 rounded-lg">
+                      <Zap className="h-5 w-5" /> Pagar con Kueski Pay
+                    </Button>
+                  </>
+                ) : (
+                  <div className="flex justify-between items-center p-3">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-gray-800">{opt.provider}</span>
+                      <span className="text-xs text-gray-500">1 pago de ${opt.total.toFixed(2)}</span>
+                    </div>
+                    <span className="font-bold text-gray-800">${opt.total.toFixed(2)}</span>
                   </div>
-                </div>
-                <div className="bg-[#00e676] text-white px-2 py-1 rounded-lg text-[10px] font-black">
-                  0% INTERÉS
-                </div>
-             </div>
-             
-             <p className="text-sm text-gray-500 font-medium mb-4">4 quincenas</p>
+                )}
+              </Card>
+            ))}
 
-             <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-5 mb-6">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-[#6200ea]">$62.50</span>
-                  <span className="text-sm text-gray-400 font-bold">/ quincena</span>
-                </div>
-                <p className="text-sm text-gray-400 font-bold mt-2">Total: $250.00</p>
-             </div>
+            {/* PANEL INFORMATIVO QUINCENAS */}
+            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-900">
+              <div className="flex items-center gap-2 font-bold mb-1">
+                <Info className="h-4 w-4 text-blue-600" />
+                ¿Qué son los pagos quincenales?
+              </div>
+              <p className="text-blue-800/80 leading-relaxed text-xs">
+                Kueski Pay divide el total de tu compra en fracciones que pagas cada 15 días.
+                Eliges el plazo que mejor se adapte a ti. ¡Sin necesidad de tarjeta de crédito!
+              </p>
+            </div>
+          </TabsContent>
 
-             <div className="space-y-3 mb-6">
-                <div className="flex items-center gap-3 text-sm font-semibold text-gray-600">
-                  <Check className="size-4 text-green-500 stroke-[3px]" /> Aprobación inmediata
-                </div>
-                <div className="flex items-center gap-3 text-sm font-semibold text-gray-600">
-                  <Check className="size-4 text-green-500 stroke-[3px]" /> Sin tarjeta de crédito
-                </div>
-                <div className="flex items-center gap-3 text-sm font-semibold text-gray-600">
-                  <Check className="size-4 text-green-500 stroke-[3px]" /> 100% digital
-                </div>
-             </div>
+          {/* CONTENIDO 2: PRECIOS */}
+          <TabsContent value="precios" className="space-y-4 m-0 mt-0">
+            {priceComparisons.map((item, i) => (
+              <Card key={i} className="p-4 rounded-xl border border-gray-200 shadow-sm bg-white">
+                 <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Store className="h-5 w-5 text-gray-500" />
+                      <span className="font-semibold text-base text-gray-900">{item.store}</span>
+                    </div>
+                    <ExternalLink className="h-5 w-5 text-gray-500 cursor-pointer hover:text-gray-900" />
+                 </div>
 
-             <Button className="w-full bg-[#6200ea] hover:bg-[#4500a0] text-white rounded-xl py-7 text-lg font-black transition-all shadow-lg shadow-purple-100">
-                <Zap className="size-5 mr-2 fill-current" /> Pagar con Kueski Pay
-             </Button>
-          </Card>
-        </TabsContent>
+                 <div className="w-full h-px bg-gray-200 mb-4"></div>
+
+                 <div className="grid grid-cols-4 gap-2">
+                   <div className="flex flex-col">
+                     <span className="text-[11px] text-gray-500 font-medium">Precio</span>
+                     <span className="font-bold text-gray-900 text-[15px]">${item.price.toFixed(2)}</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-[11px] text-gray-500 font-medium">Envío</span>
+                     <span className="font-bold text-gray-900 text-sm">{item.shipping}</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-[11px] text-gray-500 font-medium">Cashback</span>
+                     <span className="font-bold text-[#00E59B] text-sm">{item.cashback}</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-[11px] text-gray-500 font-medium">Status</span>
+                     <span className="font-bold text-[#00E59B] text-sm">{item.status}</span>
+                   </div>
+                 </div>
+              </Card>
+            ))}
+          </TabsContent>
+
+          {/* CONTENIDO 3: CUPONES */}
+          <TabsContent value="cupones" className="space-y-4 m-0 mt-0">
+            {coupons.map((coupon, i) => (
+              <div key={i} className="p-4 border border-dashed border-gray-300 bg-white rounded-xl relative">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100 border-none font-bold px-2 py-0.5 rounded text-xs">{coupon.code}</Badge>
+                    {coupon.verified && (
+                      <Badge className="bg-[#00E59B] text-white hover:bg-[#00E59B] border-none font-bold px-2 py-0.5 rounded flex items-center gap-1 text-[10px]">
+                        <Check className="h-3 w-3" /> Verified
+                      </Badge>
+                    )}
+                  </div>
+                  <Button size="sm" className="bg-[#0f172a] hover:bg-[#1e293b] text-white h-8 px-3 rounded-lg font-semibold text-xs gap-1.5 flex items-center">
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+                <div className="text-[15px] font-medium text-gray-900 mb-1">{coupon.discount}</div>
+                <div className="text-xs text-gray-500">Expires: {coupon.expires}</div>
+              </div>
+            ))}
+          </TabsContent>
+        </div>
       </Tabs>
 
-      {/* Footer */}
-      <div className="bg-gray-50 p-4 text-center border-t">
-        <p className="text-xs font-bold text-gray-400 flex items-center justify-center gap-2">
-          <span className="text-lg">💡</span> FINANCIAMIENTO DISPONIBLE AL MOMENTO DE COMPRA
-        </p>
+      {/* FOOTER INFO */}
+      <div className="footer-info text-center justify-center">
+         <span className="text-[11px] font-medium text-gray-500 flex items-center gap-1.5 justify-center">
+           <span>💡</span> Financiamiento disponible al momento de compra
+         </span>
       </div>
     </div>
   );
