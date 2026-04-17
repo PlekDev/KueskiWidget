@@ -1,6 +1,7 @@
 import { useState } from "react";
+import kueskiLogo from '../../../assets/kueski-logo.png';
 import {
-  Zap, X, Store, ExternalLink, TrendingDown, Check, Tag, LayoutTemplate, Copy, Star, Info
+  Zap, X, Store, ExternalLink, TrendingDown, Check, Tag, LayoutTemplate, Copy, Info
 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -70,8 +71,8 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
       <div className="kueski-header">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-1.5 text-white font-bold text-lg tracking-wide">
-            <Star className="h-5 w-5 fill-white" />
-            <span>DealFinder</span>
+            <img src={kueskiLogo} className="h-5 w-5" alt="Kueski" />
+            <span>Kueski-Widget</span>
           </div>
           <Button
             variant="ghost" size="icon" onClick={onClose}
@@ -128,7 +129,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <div className="flex items-center flex-wrap gap-2 mb-1">
                       <span className="font-bold text-lg text-gray-900">{opt.provider}</span>
                       {opt.recommended && (
-                        <Badge className="bg-[#a855f7] hover:bg-[#a855f7] text-white border-none gap-1 py-0.5">
+                        <Badge className="bg-[#0075FF] hover:bg-[#0075FF] text-white border-none gap-1 py-0.5">
                           <Zap className="h-3 w-3 fill-white" /> Recomendado
                         </Badge>
                       )}
@@ -141,7 +142,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <div className="text-sm text-gray-600 mb-4">{opt.periods} quincenas</div>
                     <div className="bg-gray-50 rounded-xl p-4 mb-4 flex flex-col justify-center border border-gray-100">
                       <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-extrabold text-[#8b5cf6]">${opt.amount.toFixed(2)}</span>
+                        <span className="text-3xl font-extrabold text-[#4def6a]">${opt.amount.toFixed(2)}</span>
                         <span className="text-gray-500 text-sm font-medium">/ quincena</span>
                       </div>
                       <div className="text-sm text-gray-600 mt-1">Total: ${opt.total.toFixed(2)}</div>
@@ -154,7 +155,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                         </div>
                       ))}
                     </div>
-                    <Button className="w-full bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold h-12 text-base gap-2 rounded-lg">
+                    <Button className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-12 text-base gap-2 rounded-lg">
                       <Zap className="h-5 w-5" /> Pagar con Kueski Pay
                     </Button>
                   </>
@@ -175,12 +176,12 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                 )}
               </Card>
             ))}
-            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-900">
+            <div className="mt-2 bg-[#2596be]/10 border border-[#2596be]/20 rounded-xl p-4 text-sm text-[#1a5f78]">
               <div className="flex items-center gap-2 font-bold mb-1">
-                <Info className="h-4 w-4 text-blue-600" />
+                <Info className="h-4 w-4 text-[#2596be]" />
                 ¿Qué son los pagos quincenales?
               </div>
-              <p className="text-blue-800/80 leading-relaxed text-xs">
+              <p className="text-[#1a5f78]/80 leading-relaxed text-xs">
                 Kueski Pay divide el total de tu compra en fracciones que pagas cada 15 días.
                 Eliges el plazo que mejor se adapte a ti. ¡Sin necesidad de tarjeta de crédito!
               </p>
@@ -255,7 +256,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
       {/* FOOTER */}
       <div className="footer-info text-center justify-center">
         <span className="text-[11px] font-medium text-gray-500 flex items-center gap-1.5 justify-center">
-          <span>💡</span> Financiamiento disponible al momento de compra
+          Financiamiento disponible al momento de compra
         </span>
       </div>
     </div>

@@ -17,7 +17,7 @@ body {
 
 /* Header de Kueski */
 .kueski-header {
-  @apply bg-gradient-to-br from-[#9333ea] to-[#3b82f6] p-4 shrink-0;
+  @apply bg-gradient-to-br from-[#0050CC] to-[#0075FF] p-4 shrink-0;
 }
 
 .kueski-header-card {
@@ -31,8 +31,8 @@ body {
 
 .tab-button {
   @apply flex items-center justify-center gap-2 text-sm font-medium text-gray-600 rounded-none h-full bg-white transition-colors
-         data-[state=active]:bg-gray-50 data-[state=active]:text-gray-900
-         data-[state=active]:border-b-2 data-[state=active]:border-gray-900 cursor-pointer;
+         data-[state=active]:bg-gray-50 data-[state=active]:text-[#2596be]
+         data-[state=active]:border-b-2 data-[state=active]:border-[#2596be] cursor-pointer;
 }
 
 /* Tarjetas de Opciones (PAGOS) */
@@ -41,7 +41,7 @@ body {
 }
 
 .option-card-featured {
-  @apply p-4 transition-all shadow-sm border-[#a855f7] border rounded-xl bg-white relative;
+  @apply p-4 transition-all shadow-sm border-[#0075FF]/40 border rounded-xl bg-white relative;
 }
 
 .benefit-badge {
