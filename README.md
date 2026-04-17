@@ -96,3 +96,6 @@ Rutas recomendadas en Windows: `C:\Dev\`, `C:\Projects\`
 
 
 
+
+<img width="576" height="650" alt="image" src="https://github.com/user-attachments/assets/ed614a01-d532-4957-88d4-d5687694e3bd" />
+ porque raioz esta vida es tan efimera y debemos sacrificar nuestro tiempo en estas cosas. deberias salir mas dejar de ver la computadora, vamos levantate y haz la revolucion de la humanidad como se debe
