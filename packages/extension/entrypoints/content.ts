@@ -1,19 +1,37 @@
+import { supabase } from 'shared/supabase';
+import { MerchantMapper } from 'shared/mappers';
+import type { Merchant } from 'shared/models';
+
 export default defineContentScript({
   matches: ['<all_urls>'],
-  main() {
+  async main() {
     console.log('Kueski content script running.');
 
-    // ─── Helpers ────────────────────────────────────────────────────────────────
-    const SUPPORTED_DOMAINS = [
-      'amazon.com', 'amazon.com.mx',
-      'mercadolibre.com', 'mercadolibre.com.mx',
-      'aliexpress.com',
-    ];
+    // ─── Blacklist check ─────────────────────────────────────────────────────
+    const isBlacklisted = async (hostname: string): Promise<boolean> => {
+      const { data } = await supabase
+        .from('blacklist')
+        .select('uid')
+        .eq('domain', hostname)
+        .maybeSingle();
+      return !!data;
+    };
 
-    const isSupportedDomain = () =>
-      SUPPORTED_DOMAINS.some(d => location.hostname.includes(d));
+    // ─── Merchant check ──────────────────────────────────────────────────────
+    const getActiveMerchant = async (hostname: string): Promise<Merchant | null> => {
+      // Busca si algún dominio registrado está contenido en el hostname actual
+      const { data, error } = await supabase
+        .from('merchants')
+        .select('*')
+        .eq('is_active', true);
 
-    /** Returns the first non-null text from a list of CSS selectors */
+      if (error || !data) return null;
+
+      const row = data.find(m => hostname.includes(m.domain));
+      return row ? MerchantMapper.toDomain(row) : null;
+    };
+
+    // ─── Price extraction per platform ───────────────────────────────────────
     const queryText = (selectors: string[]): string | null => {
       for (const sel of selectors) {
         const el = document.querySelector(sel);
@@ -22,11 +40,9 @@ export default defineContentScript({
       return null;
     };
 
-    // ─── Price extraction per platform ──────────────────────────────────────────
     const extractPriceAndProduct = (): { price: number; productName: string; currency: string } | null => {
       const hostname = location.hostname;
 
-      // ── Amazon ──────────────────────────────────────────────────────────────
       if (hostname.includes('amazon')) {
         const priceText = queryText([
           '.a-price .a-offscreen',
@@ -36,64 +52,81 @@ export default defineContentScript({
           '#corePrice_feature_div .a-offscreen',
           '.priceToPay .a-offscreen',
         ]);
-        const productName = queryText([
-          '#productTitle',
-          'h1.product-title-word-break',
-        ]);
+        const productName = queryText(['#productTitle', 'h1.product-title-word-break']);
         if (priceText) {
           const match = priceText.match(/[\d,]+\.?\d*/);
           if (match) {
             const price = parseFloat(match[0].replace(/,/g, ''));
-            if (price > 0) {
-              return { price, productName: productName || 'Producto Amazon', currency: 'MXN' };
-            }
+            if (price > 0) return { price, productName: productName || 'Producto Amazon', currency: 'MXN' };
           }
         }
       }
 
-      // ── MercadoLibre ─────────────────────────────────────────────────────────
       if (hostname.includes('mercadolibre')) {
         const priceText = queryText([
           '.andes-money-amount__fraction',
           '.ui-pdp-price__second-line .andes-money-amount__fraction',
           '[data-testid="price-component"] .andes-money-amount__fraction',
         ]);
-        const productName = queryText([
-          '.ui-pdp-title',
-          'h1.ui-pdp-title',
-        ]);
+        const productName = queryText(['.ui-pdp-title', 'h1.ui-pdp-title']);
         if (priceText) {
-          const price = parseFloat(priceText.replace(/[.,]/g, d => d === '.' ? '.' : ''));
           const clean = parseFloat(priceText.replace(/\./g, '').replace(',', '.'));
-          const finalPrice = clean > 0 ? clean : price;
-          if (finalPrice > 0) {
-            return { price: finalPrice, productName: productName || 'Producto MercadoLibre', currency: 'MXN' };
+          if (clean > 0) return { price: clean, productName: productName || 'Producto MercadoLibre', currency: 'MXN' };
+        }
+      }
+
+      if (hostname.includes('liverpool')) {
+        const priceText = queryText([
+          '.price-main',
+          '[class*="price"]',
+          '.product-price',
+        ]);
+        const productName = queryText(['h1', '.product-title', '[class*="title"]']);
+        if (priceText) {
+          const match = priceText.match(/[\d,]+\.?\d*/);
+          if (match) {
+            const price = parseFloat(match[0].replace(/,/g, ''));
+            if (price > 0) return { price, productName: productName || 'Producto Liverpool', currency: 'MXN' };
           }
         }
       }
 
-      // ── AliExpress ───────────────────────────────────────────────────────────
+      if (hostname.includes('elektra')) {
+        const priceText = queryText(['.price', '[class*="price"]', '.product-price']);
+        const productName = queryText(['h1', '.product-name']);
+        if (priceText) {
+          const match = priceText.match(/[\d,]+\.?\d*/);
+          if (match) {
+            const price = parseFloat(match[0].replace(/,/g, ''));
+            if (price > 0) return { price, productName: productName || 'Producto Elektra', currency: 'MXN' };
+          }
+        }
+      }
+
       if (hostname.includes('aliexpress')) {
         const priceText = queryText([
           '.product-price-value',
           '[class*="price--originalPrice"]',
-          '[class*="uniformBanner--price"]',
           '.pdp-price',
         ]);
-        const productName = queryText([
-          '.product-title-text',
-          'h1[data-pl="product-title"]',
-          'h1',
-        ]);
+        const productName = queryText(['.product-title-text', 'h1[data-pl="product-title"]', 'h1']);
         if (priceText) {
           const match = priceText.match(/[\d.]+/);
           if (match) {
-            const priceUSD = parseFloat(match[0]);
-            // Convert USD → MXN approx
-            const priceMXN = priceUSD * 17.5;
-            if (priceMXN > 0) {
-              return { price: Math.round(priceMXN), productName: productName || 'Producto AliExpress', currency: 'MXN' };
-            }
+            const priceMXN = parseFloat(match[0]) * 17.5;
+            if (priceMXN > 0) return { price: Math.round(priceMXN), productName: productName || 'Producto AliExpress', currency: 'MXN' };
+          }
+        }
+      }
+
+      if (hostname.includes('puma')) {
+        const priceText = queryText(['.price', '[class*="price"]']);
+        const productName = queryText(['h1', '.product-name', '[class*="title"]']);
+        if (priceText) {
+          const match = priceText.match(/[\d,]+\.?\d*/);
+          if (match) {
+            const price = parseFloat(match[0].replace(/,/g, ''));
+            if (price > 0) return { price, productName: productName || 'Producto PUMA', currency: 'MXN' };
           }
         }
       }
@@ -101,25 +134,40 @@ export default defineContentScript({
       return null;
     };
 
-    // ─── Widget injection ────────────────────────────────────────────────────────
+    // ─── Widget injection ─────────────────────────────────────────────────────
     let injected = false;
 
-    const injectWidget = () => {
+    const injectWidget = async () => {
       if (injected || document.getElementById('kueski-root')) return;
-      if (!isSupportedDomain()) return;
 
+      const hostname = location.hostname;
+
+      // 1. Blacklist check
+      const blocked = await isBlacklisted(hostname);
+      if (blocked) {
+        console.warn('Kueski: dominio en blacklist, widget no inyectado.');
+        return;
+      }
+
+      // 2. Merchant check (solo tiendas activas en DB)
+      const merchant = await getActiveMerchant(hostname);
+      if (!merchant) return;
+
+      // 3. Price extraction
       const data = extractPriceAndProduct();
-      if (!data || data.price < 100) return; // Only for meaningful prices
+      if (!data || data.price < 100) return;
 
       injected = true;
 
-      // Container
       const container = document.createElement('div');
       container.id = 'kueski-root';
       container.style.cssText = 'all:initial;position:fixed;bottom:24px;right:24px;z-index:2147483647;font-family:system-ui,-apple-system,sans-serif;';
 
-      // Shadow DOM for style isolation
       const shadow = container.attachShadow({ mode: 'open' });
+
+      const cashbackLabel = merchant.cashbackPercent > 0
+        ? `${merchant.cashbackPercent}% cashback`
+        : '0% interés';
 
       const styles = `
         :host { all: initial; }
@@ -165,6 +213,11 @@ export default defineContentScript({
         .panel-header .subtitle { font-size: 11px; opacity: 0.85; }
         .panel-header .price-big { font-size: 26px; font-weight: 900; margin: 8px 0 2px; }
         .panel-header .price-label { font-size: 11px; opacity: 0.8; }
+        .panel-header .cashback-tag {
+          display: inline-block; margin-top: 6px;
+          background: #00E59B; color: #0a1628; font-size: 11px;
+          font-weight: 800; padding: 2px 8px; border-radius: 20px;
+        }
 
         .panel-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 
@@ -182,10 +235,11 @@ export default defineContentScript({
         .rec-tag { font-size: 10px; font-weight: 700; color: white; background: #0075FF; padding: 2px 7px; border-radius: 8px; margin-left: 6px; }
 
         .cta-btn {
-          width: 100%; padding: 12px; background: linear-gradient(135deg, #0050CC 0%, #0075FF 100%);
-          color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 800;
-          cursor: pointer; transition: opacity 0.2s; font-family: system-ui, sans-serif;
-          margin-top: 4px;
+          width: 100%; padding: 12px;
+          background: linear-gradient(135deg, #0050CC 0%, #0075FF 100%);
+          color: white; border: none; border-radius: 10px;
+          font-size: 14px; font-weight: 800; cursor: pointer;
+          transition: opacity 0.2s; font-family: system-ui, sans-serif; margin-top: 4px;
         }
         .cta-btn:hover { opacity: 0.9; }
         .disclaimer { font-size: 10px; color: #999; text-align: center; padding: 8px 12px; border-top: 1px solid #f0f0f0; }
@@ -220,6 +274,7 @@ export default defineContentScript({
             <p class="subtitle">${data.productName.slice(0, 50)}${data.productName.length > 50 ? '…' : ''}</p>
             <div class="price-big">${fmt(options[0].amount)}</div>
             <div class="price-label">por quincena · 4 quincenas · 0% interés</div>
+            ${merchant.cashbackPercent > 0 ? `<span class="cashback-tag">🎁 ${cashbackLabel} en ${merchant.name}</span>` : ''}
           </div>
           <div class="panel-body">
             ${options.map((o, i) => `
@@ -240,32 +295,33 @@ export default defineContentScript({
         </div>
 
         <button class="kueski-btn" id="mainBtn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
           Pagar con Kueski
           <span class="kueski-badge">${fmt(options[0].amount)}/qna</span>
         </button>
       `;
 
-      const panel = shadow.getElementById('panel')!;
-      const mainBtn = shadow.getElementById('mainBtn')!;
+      const panel     = shadow.getElementById('panel')!;
+      const mainBtn   = shadow.getElementById('mainBtn')!;
       const closePanel = shadow.getElementById('closePanel')!;
-      const ctaBtn = shadow.getElementById('ctaBtn')!;
+      const ctaBtn    = shadow.getElementById('ctaBtn')!;
 
       mainBtn.addEventListener('click', () => panel.classList.toggle('open'));
       closePanel.addEventListener('click', e => { e.stopPropagation(); panel.classList.remove('open'); });
 
-      // Option selection highlight
       shadow.querySelectorAll('.option').forEach(opt => {
         opt.addEventListener('click', () => {
           shadow.querySelectorAll('.option').forEach(o => o.classList.remove('featured'));
           opt.classList.add('featured');
           const periods = parseInt((opt as HTMLElement).dataset.periods || '4');
-          const selectedOpt = options.find(o => o.periods === periods);
-          if (selectedOpt) {
+          const selected = options.find(o => o.periods === periods);
+          if (selected) {
             const header = shadow.querySelector('.price-big') as HTMLElement;
-            const headerLabel = shadow.querySelector('.price-label') as HTMLElement;
-            if (header) header.textContent = fmt(selectedOpt.amount);
-            if (headerLabel) headerLabel.textContent = `por quincena · ${periods} quincenas · 0% interés`;
+            const label  = shadow.querySelector('.price-label') as HTMLElement;
+            if (header) header.textContent = fmt(selected.amount);
+            if (label)  label.textContent  = `por quincena · ${periods} quincenas · 0% interés`;
           }
         });
       });
@@ -275,15 +331,11 @@ export default defineContentScript({
       });
 
       document.body.appendChild(container);
-      console.log('Kueski widget injected for:', data.productName, '@', fmt(price));
+      console.log(`Kueski widget inyectado: ${merchant.name} | ${data.productName} @ ${fmt(price)}`);
     };
 
-    // ─── Initialization & SPA observer ──────────────────────────────────────────
-    const tryInject = () => {
-      if (!isSupportedDomain()) return;
-      // Wait a bit for dynamic content to load
-      setTimeout(injectWidget, 1500);
-    };
+    // ─── Init & SPA observer ──────────────────────────────────────────────────
+    const tryInject = () => setTimeout(injectWidget, 1500);
 
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', tryInject);
@@ -291,14 +343,12 @@ export default defineContentScript({
       tryInject();
     }
 
-    // SPA navigation (pushState, hashchange)
     let lastUrl = location.href;
     new MutationObserver(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         injected = false;
-        const old = document.getElementById('kueski-root');
-        if (old) old.remove();
+        document.getElementById('kueski-root')?.remove();
         setTimeout(injectWidget, 2000);
       }
     }).observe(document.body, { childList: true, subtree: true });
