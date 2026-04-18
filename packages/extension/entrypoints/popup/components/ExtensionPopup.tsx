@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import kueskiLogo from '../../../assets/kueski-logo.png';
 import {
-  Zap, X, Store, ExternalLink, TrendingDown, Check, Tag, LayoutTemplate, Copy, Info, Wallet, Bell
+  Zap, X, Store, ExternalLink, TrendingDown, Check, Tag,
+  LayoutTemplate, Copy, Info, Wallet, Bell, CheckCircle, Loader2,
+  ShoppingCart, ArrowRight, RefreshCw
 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -9,375 +11,526 @@ import { Badge } from "./ui/badge";
 import '../style.css';
 
 type Tab = 'panel' | 'pago' | 'precios' | 'cupones';
+type PayFlow = 'options' | 'form' | 'loading' | 'success';
 
-interface PaymentOption {
-  provider: string;
-  periods: number;
-  amount: number;
-  total: number;
-  featured: boolean;
-  recommended: boolean;
-  interest: string | null;
-  benefits: string[];
-  commission?: string;
-  firstPaymentDate?: string;
-}
+const formatCurrency = (amount: number) =>
+  amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
-const formatCurrency = (amount: number) => {
-  return amount.toLocaleString('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
+// ─── Simulated product data (read from page or fallback) ────────────────────
+const DEMO_PRODUCTS: Record<string, { name: string; price: number; image: string }> = {
+  amazon: { name: 'Apple iPhone 15 128GB', price: 18999, image: 'https://m.media-amazon.com/images/I/61bK6PMOC3L._AC_SX679_.jpg' },
+  mercadolibre: { name: 'Samsung Galaxy S24 Ultra', price: 22499, image: '' },
+  aliexpress: { name: 'Xiaomi Redmi Note 13 Pro', price: 4299, image: '' },
 };
 
-interface PriceComparison {
+// ─── Price comparison data ────────────────────────────────────────────────────
+interface PriceResult {
   store: string;
   price: number;
   shipping: string;
   cashback: string;
-  status: string;
-  link: string;
+  inStock: boolean;
+  url: string;
+  flag: string;
 }
 
-interface Coupon {
-  code: string;
-  discount: string;
-  expires: string;
-  verified: boolean;
-}
+const buildComparisons = (basePrice: number, productName: string): PriceResult[] => {
+  const variance = (pct: number) => Math.round(basePrice * (1 + pct / 100));
+  return [
+    { store: 'Amazon MX',      price: basePrice,         shipping: 'Gratis Prime',  cashback: formatCurrency(basePrice * 0.025), inStock: true,  url: `https://www.amazon.com.mx/s?k=${encodeURIComponent(productName)}`, flag: '🇲🇽' },
+    { store: 'MercadoLibre',   price: variance(-3),      shipping: 'Gratis',        cashback: formatCurrency(variance(-3)*0.02), inStock: true,  url: `https://listado.mercadolibre.com.mx/${encodeURIComponent(productName)}`, flag: '🛒' },
+    { store: 'AliExpress',     price: variance(-12),     shipping: '$99 envío',     cashback: formatCurrency(variance(-12)*0.03), inStock: true,  url: `https://es.aliexpress.com/w/wholesale-${encodeURIComponent(productName)}.html`, flag: '🌏' },
+    { store: 'Walmart MX',     price: variance(+2),      shipping: 'Gratis +$499',  cashback: '—',                             inStock: false, url: `https://www.walmart.com.mx/search?q=${encodeURIComponent(productName)}`, flag: '🔵' },
+    { store: 'Liverpool',      price: variance(+8),      shipping: 'Gratis +$999',  cashback: '—',                             inStock: true,  url: `https://www.liverpool.com.mx/tienda/busqueda?q=${encodeURIComponent(productName)}`, flag: '🔴' },
+  ];
+};
+
+// ─── Coupons (April 2026 – Promodescuentos style) ─────────────────────────────
+const COUPONS = [
+  { code: 'KUESKI10',    discount: '10% extra en tu primera compra con Kueski Pay', expires: '30 Abr 2026', verified: true,  source: 'Kueski oficial' },
+  { code: 'AMAZON20',   discount: '20% off en electrónicos Amazon.com.mx',          expires: '20 Abr 2026', verified: true,  source: 'Promodescuentos' },
+  { code: 'MELI2026',   discount: 'Envío gratis sin mínimo en MercadoLibre',        expires: '25 Abr 2026', verified: true,  source: 'Promodescuentos' },
+  { code: 'ALISHIP',    discount: 'Envío gratis en AliExpress (mín. $15 USD)',       expires: '30 Abr 2026', verified: false, source: 'Usuario verificado' },
+  { code: 'SPRING15',   discount: '15% off en moda y accesorios Liverpool',         expires: '01 May 2026', verified: true,  source: 'Liverpool oficial' },
+  { code: 'WALMART12',  discount: '12% de descuento en línea Walmart',              expires: '22 Abr 2026', verified: false, source: 'Promodescuentos' },
+];
 
 export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('pago');
-  const [mockValidationState, setMockValidationState] = useState<'idle' | 'form' | 'loading' | 'success'>('idle');
+  const [payFlow, setPayFlow] = useState<PayFlow>('options');
+  const [selectedPeriods, setSelectedPeriods] = useState(4);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [pricesLoaded, setPricesLoaded] = useState(false);
 
-  const handlePayClick = () => {
-    setMockValidationState('form');
+  // Simulate reading from page – in production this comes from content script via messaging
+  const product = DEMO_PRODUCTS.amazon;
+  const price = product.price;
+  const comparisons = buildComparisons(price, product.name);
+
+  const kueskiOptions = [
+    { periods: 4,  amount: price / 4  },
+    { periods: 6,  amount: price / 6  },
+    { periods: 8,  amount: price / 8  },
+    { periods: 12, amount: price / 12 },
+  ];
+
+  const selectedOption = kueskiOptions.find(o => o.periods === selectedPeriods) || kueskiOptions[0];
+
+  // Auto-load prices when tab opens
+  useEffect(() => {
+    if (activeTab === 'precios' && !pricesLoaded) {
+      setLoadingPrices(true);
+      setTimeout(() => {
+        setLoadingPrices(false);
+        setPricesLoaded(true);
+      }, 1800);
+    }
+  }, [activeTab]);
+
+  const handleCopy = (code: string) => {
+    navigator.clipboard.writeText(code).catch(() => {});
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const handleVerifyIdentity = () => {
-    setMockValidationState('loading');
-    setTimeout(() => {
-      setMockValidationState('success');
-    }, 2000);
+  const handlePay = () => {
+    setPayFlow('form');
   };
 
-  const kueskiOptions: PaymentOption[] = [
-    { provider: 'Kueski Pay', periods: 4, amount: 62.50, total: 250.00, featured: true, recommended: true, interest: '0% interés', benefits: ['Aprobación inmediata', 'Sin tarjeta de crédito', '100% digital'], commission: '0 comisiones ocultas', firstPaymentDate: 'Hoy' },
-    { provider: 'Kueski Pay', periods: 6, amount: 41.67, total: 250.00, featured: false, recommended: false, interest: '0% interés', benefits: [], commission: '0 comisiones ocultas', firstPaymentDate: 'Hoy' },
-    { provider: 'Kueski Pay', periods: 8, amount: 31.25, total: 250.00, featured: false, recommended: false, interest: '0% interés', benefits: [], commission: '0 comisiones ocultas', firstPaymentDate: 'Hoy' },
-    { provider: 'Tarjeta de Crédito', periods: 1, amount: 250.00, total: 250.00, featured: false, recommended: false, interest: null, benefits: [] },
-    { provider: 'PayPal', periods: 1, amount: 250.00, total: 250.00, featured: false, recommended: false, interest: null, benefits: [] },
-  ];
+  const handleVerify = () => {
+    setPayFlow('loading');
+    setTimeout(() => setPayFlow('success'), 2500);
+  };
 
-  const priceComparisons: PriceComparison[] = [
-    { store: 'Amazon', price: 199.99, shipping: 'Free', cashback: '$4.99', status: 'In Stock', link: '#' },
-    { store: 'Best Buy', price: 219.99, shipping: 'Free', cashback: '$6.59', status: 'In Stock', link: '#' },
-  ];
-
-  const coupons: Coupon[] = [
-    { code: 'SAVE20', discount: '20% off your purchase', expires: 'Apr 20, 2026', verified: true },
-    { code: 'FREESHIP', discount: 'Free shipping on orders over $50', expires: 'Apr 30, 2026', verified: true },
-    { code: 'SPRING15', discount: '15% off electronics', expires: 'May 1, 2026', verified: false },
-  ];
+  const handleSuccessRedirect = () => {
+    window.open('https://www.kueski.com/', '_blank');
+  };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'panel', label: 'Panel', icon: <Wallet className="h-4 w-4" /> },
-    { id: 'pago', label: 'Pago', icon: <LayoutTemplate className="h-4 w-4" /> },
-    { id: 'precios', label: 'Precios', icon: <TrendingDown className="h-4 w-4" /> },
-    { id: 'cupones', label: 'Cupones', icon: <Tag className="h-4 w-4" /> },
+    { id: 'panel',   label: 'Panel',   icon: <Wallet className="h-3.5 w-3.5" /> },
+    { id: 'pago',    label: 'Pago',    icon: <LayoutTemplate className="h-3.5 w-3.5" /> },
+    { id: 'precios', label: 'Precios', icon: <TrendingDown className="h-3.5 w-3.5" /> },
+    { id: 'cupones', label: 'Cupones', icon: <Tag className="h-3.5 w-3.5" /> },
   ];
 
   return (
     <div className="popup-container">
-      {/* HEADER */}
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="kueski-header">
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-1.5 text-white font-bold text-lg tracking-wide">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-1.5 text-white font-bold text-base tracking-wide">
             <img src={kueskiLogo} className="h-5 w-5" alt="Kueski" />
-            <span>Kueski-Widget</span>
+            <span>Kueski Widget</span>
           </div>
-          <Button
-            variant="ghost" size="icon" onClick={onClose}
-            className="text-white hover:bg-white/20 rounded-full h-8 w-8"
-          >
-            <X className="h-4 w-4" />
+          <Button variant="ghost" size="icon" onClick={onClose}
+            className="text-white hover:bg-white/20 rounded-full h-7 w-7">
+            <X className="h-3.5 w-3.5" />
           </Button>
         </div>
         <div className="kueski-header-card">
-          <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-sm">
-            <Zap className="h-4 w-4 fill-yellow-300" />
-            Mejor Opción de Pago
+          <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-xs">
+            <Zap className="h-3.5 w-3.5 fill-yellow-300" />
+            Mejor Opción · {selectedPeriods} quincenas a 0% interés
           </div>
           <div className="flex justify-between items-center">
-            <div className="flex flex-col">
-              <span className="text-3xl font-extrabold text-white leading-none mb-1">{formatCurrency(62.50)}</span>
-              <span className="text-[11px] text-white/90">por quincena</span>
+            <div>
+              <span className="text-2xl font-extrabold text-white">{formatCurrency(selectedOption.amount)}</span>
+              <span className="text-white/80 text-xs ml-1">/ quincena</span>
             </div>
-            <div className="flex flex-col items-center">
-              <span className="text-xl font-bold text-white leading-none mb-1">4</span>
-              <span className="text-[11px] text-white/90">quincenas</span>
+            <div className="text-right">
+              <div className="text-xs text-white/70">Total producto</div>
+              <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
             </div>
-            <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-3 py-1 rounded-md">
+            <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-2 py-0.5 text-xs">
               0% interés
             </Badge>
           </div>
         </div>
       </div>
 
-      {/* TABS */}
+      {/* ── TABS ───────────────────────────────────────────────────────────── */}
       <div className="tabs-container">
         {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`tab-button gap-2 ${activeTab === tab.id ? 'data-[state=active]:bg-gray-50' : ''}`}
-            data-state={activeTab === tab.id ? 'active' : 'inactive'}
-          >
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className={`tab-button gap-1 text-xs ${activeTab === tab.id ? 'data-[state=active]:bg-gray-50' : ''}`}
+            data-state={activeTab === tab.id ? 'active' : 'inactive'}>
             {tab.icon} {tab.label}
           </button>
         ))}
       </div>
 
-      {/* CONTENT */}
-      <div className="overflow-y-auto flex-1 bg-white p-4 styled-scrollbar">
+      {/* ── CONTENT ────────────────────────────────────────────────────────── */}
+      <div className="overflow-y-auto flex-1 bg-white p-3 styled-scrollbar">
 
-        {/* TAB: PANEL */}
+        {/* ━━━ TAB: PANEL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         {activeTab === 'panel' && (
-          <div className="space-y-4">
-            <Card className="p-4 rounded-xl border border-gray-200 shadow-sm bg-gradient-to-br from-gray-900 to-gray-800 text-white relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Wallet className="h-24 w-24" />
-              </div>
-              <h3 className="text-sm font-medium text-gray-300 mb-1 relative z-10">Panel de Control de Deuda</h3>
-              <div className="text-3xl font-extrabold mb-4 relative z-10">{formatCurrency(1250.50)}</div>
-
-              <div className="grid grid-cols-2 gap-4 border-t border-gray-700 pt-4 relative z-10">
+          <div className="space-y-3">
+            <Card className="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 text-white border-0">
+              <p className="text-xs text-gray-400 mb-1">Crédito Disponible</p>
+              <p className="text-3xl font-extrabold mb-3">{formatCurrency(8749.50)}</p>
+              <div className="grid grid-cols-2 gap-3 border-t border-gray-700 pt-3">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">Crédito Disponible</div>
-                  <div className="text-lg font-bold text-[#00E59B]">{formatCurrency(8749.50)}</div>
+                  <p className="text-xs text-gray-400">Usado</p>
+                  <p className="font-bold text-[#00E59B]">{formatCurrency(1250.50)}</p>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1">Límite Total</div>
-                  <div className="text-lg font-bold">{formatCurrency(10000.00)}</div>
+                  <p className="text-xs text-gray-400">Límite</p>
+                  <p className="font-bold">{formatCurrency(10000)}</p>
                 </div>
               </div>
             </Card>
 
-            <Card className="p-4 rounded-xl border-l-4 border-l-yellow-400 border-y border-r border-gray-200 shadow-sm bg-white">
-              <div className="flex gap-3 mb-3">
-                <div className="bg-yellow-100 p-2 rounded-full h-fit">
-                  <Bell className="h-5 w-5 text-yellow-600" />
+            <Card className="p-3 border-l-4 border-l-yellow-400 border-y border-r border-gray-200 bg-white">
+              <div className="flex gap-2 mb-2">
+                <div className="bg-yellow-100 p-1.5 rounded-full h-fit">
+                  <Bell className="h-4 w-4 text-yellow-600" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900 text-sm">Recordatorio de Cobro</h4>
-                  <p className="text-xs text-gray-600 mt-1">
-                    Tu próximo pago de {formatCurrency(250.00)} vence en 48 horas.
+                  <p className="font-bold text-gray-900 text-sm">Próximo pago</p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {formatCurrency(selectedOption.amount)} vence el <strong>5 de Mayo</strong>
                   </p>
                 </div>
               </div>
-              <Button
-                onClick={() => { setActiveTab('pago'); setMockValidationState('idle'); }}
-                className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold h-10 text-sm gap-2 rounded-lg"
-              >
-                Realizar Pago
+              <Button onClick={() => { setActiveTab('pago'); setPayFlow('options'); }}
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold h-9 text-xs gap-1.5 rounded-lg">
+                <ShoppingCart className="h-3.5 w-3.5" /> Realizar Pago
               </Button>
+            </Card>
+
+            <Card className="p-3 border border-gray-200">
+              <p className="text-xs font-bold text-gray-700 mb-2">Historial de pagos</p>
+              {[
+                { label: 'Quincena 1 – iPhone 15',       amount: price / 4, date: '20 Mar', status: 'Pagado' },
+                { label: 'Quincena 2 – Smartwatch',      amount: 349.99,    date: '05 Abr', status: 'Pagado' },
+                { label: 'Quincena 3 – Audifonos Sony',  amount: 199.99,    date: '20 Abr', status: 'Pendiente' },
+              ].map((item, i) => (
+                <div key={i} className="flex justify-between items-center py-1.5 border-b border-gray-100 last:border-0">
+                  <div>
+                    <p className="text-xs font-medium text-gray-800">{item.label}</p>
+                    <p className="text-[10px] text-gray-400">{item.date}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold">{formatCurrency(item.amount)}</p>
+                    <span className={`text-[10px] font-semibold ${item.status === 'Pagado' ? 'text-green-600' : 'text-yellow-600'}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </Card>
           </div>
         )}
 
-        {/* TAB: PAGO */}
-        {activeTab === 'pago' && mockValidationState === 'idle' && (
-          <div className="flex flex-col gap-4">
-            {kueskiOptions.map((opt, i) => (
-              <Card key={i} className={opt.featured ? "option-card-featured" : "option-card-default"}>
-                {opt.featured ? (
-                  <>
-                    <div className="flex items-center flex-wrap gap-2 mb-1">
-                      <span className="font-bold text-lg text-gray-900">{opt.provider}</span>
-                      {opt.recommended && (
-                        <Badge className="bg-[#0075FF] hover:bg-[#0075FF] text-white border-none gap-1 py-0.5">
-                          <Zap className="h-3 w-3 fill-white" /> Recomendado
-                        </Badge>
-                      )}
-                      {opt.interest && (
-                        <Badge className="bg-[#00E59B] hover:bg-[#00E59B] text-gray-900 border-none font-bold ml-auto">
-                          {opt.interest}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600 mb-4">{opt.periods} quincenas</div>
-                    <div className="bg-gray-50 rounded-xl p-4 mb-4 flex flex-col justify-center border border-gray-100">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-extrabold text-[#4def6a]">{formatCurrency(opt.amount)}</span>
-                        <span className="text-gray-500 text-sm font-medium">/ quincena</span>
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">Total: {formatCurrency(opt.total)}</div>
-                      {opt.commission && (
-                        <div className="text-xs text-gray-500 mt-1">{opt.commission}</div>
-                      )}
-                      {opt.firstPaymentDate && (
-                        <div className="text-xs font-bold text-gray-700 mt-1">Primer cobro: {opt.firstPaymentDate}</div>
-                      )}
-                    </div>
-                    <div className="space-y-2 mb-4">
-                      {opt.benefits.map((b, j) => (
-                        <div key={j} className="flex items-center gap-2 text-sm text-gray-600">
-                          <Check className="h-4 w-4 text-[#00E59B] font-bold" />
-                          {b}
-                        </div>
-                      ))}
-                    </div>
-                    <Button onClick={handlePayClick} className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-12 text-base gap-2 rounded-lg">
-                      <Zap className="h-5 w-5" /> Pagar con Kueski Pay
-                    </Button>
-                  </>
-                ) : (
-                  <div className="flex justify-between items-center p-3">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-gray-800">{opt.provider}</span>
-                      <span className="text-xs text-gray-500">
-                        {opt.interest
-                          ? `${opt.periods} quincenas · ${opt.interest}`
-                          : `1 pago de ${formatCurrency(opt.total)}`}
-                      </span>
-                      {opt.commission && (
-                        <span className="text-[10px] text-gray-400">{opt.commission}</span>
-                      )}
-                      {opt.firstPaymentDate && (
-                        <span className="text-[10px] text-gray-500 font-medium mt-0.5">Primer cobro: {opt.firstPaymentDate}</span>
-                      )}
-                    </div>
-                    <span className="font-bold text-gray-800">
-                      {opt.interest ? formatCurrency(opt.amount) : formatCurrency(opt.total)}
-                    </span>
+        {/* ━━━ TAB: PAGO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {activeTab === 'pago' && (
+          <>
+            {/* Options */}
+            {payFlow === 'options' && (
+              <div className="flex flex-col gap-3">
+                {/* Product info */}
+                <div className="bg-blue-50 rounded-xl p-3 flex items-center gap-3 border border-blue-100">
+                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 shrink-0">
+                    <ShoppingCart className="h-5 w-5 text-blue-500" />
                   </div>
-                )}
-              </Card>
-            ))}
-            <div className="mt-2 bg-[#2596be]/10 border border-[#2596be]/20 rounded-xl p-4 text-sm text-[#1a5f78]">
-              <div className="flex items-center gap-2 font-bold mb-1">
-                <Info className="h-4 w-4 text-[#2596be]" />
-                ¿Qué son los pagos quincenales?
-              </div>
-              <p className="text-[#1a5f78]/80 leading-relaxed text-xs">
-                Kueski Pay divide el total de tu compra en fracciones que pagas cada 15 días.
-                Eliges el plazo que mejor se adapte a ti. ¡Sin necesidad de tarjeta de crédito!
-              </p>
-            </div>
-          </div>
-        )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-gray-900 truncate">{product.name}</p>
+                    <p className="text-xs text-gray-500">Precio actual: <strong className="text-[#0075FF]">{formatCurrency(price)}</strong></p>
+                  </div>
+                </div>
 
-        {/* VALIDATION FLOW */}
-        {activeTab === 'pago' && mockValidationState !== 'idle' && (
-          <div className="flex flex-col gap-4 p-2 items-center justify-center text-center">
-            {mockValidationState === 'form' && (
-              <>
-                <h3 className="font-bold text-lg mb-2">Validación de Identidad</h3>
-                <p className="text-sm text-gray-500 mb-4">Completa tu registro con pocos datos para aprobar tu compra.</p>
-                <input className="w-full border rounded-md p-2 mb-2" placeholder="Nombre completo" />
-                <input className="w-full border rounded-md p-2 mb-2" placeholder="Email" />
-                <div className="w-full border rounded-md p-6 bg-gray-50 border-dashed text-gray-400 text-sm mb-4 cursor-pointer">
-                  📸 Toma foto de tu ID y selfie
+                <p className="text-xs font-bold text-gray-700">Elige tu plan de pago:</p>
+
+                {kueskiOptions.map((opt) => (
+                  <div key={opt.periods}
+                    onClick={() => setSelectedPeriods(opt.periods)}
+                    className={`border-2 rounded-xl p-3 cursor-pointer transition-all ${
+                      selectedPeriods === opt.periods
+                        ? 'border-[#0075FF] bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-gray-900">{opt.periods} quincenas</span>
+                          {opt.periods === 4 && (
+                            <span className="text-[10px] bg-[#0075FF] text-white px-2 py-0.5 rounded-full font-bold">Recomendado</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-500">Total: {formatCurrency(price)} · 0 comisiones</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-extrabold text-[#0075FF]">{formatCurrency(opt.amount)}</div>
+                        <div className="text-[10px] text-green-600 font-bold">0% interés</div>
+                      </div>
+                    </div>
+                    {selectedPeriods === opt.periods && (
+                      <div className="mt-2 pt-2 border-t border-blue-200 grid grid-cols-3 gap-1 text-[10px] text-gray-600">
+                        <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500"/>Sin tarjeta</span>
+                        <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500"/>Aprobación inmediata</span>
+                        <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500"/>100% digital</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <Button onClick={handlePay}
+                  className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-11 text-sm gap-2 rounded-xl mt-1">
+                  <Zap className="h-4 w-4" /> Solicitar con Kueski Pay
+                  <ArrowRight className="h-4 w-4 ml-auto" />
+                </Button>
+
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+                  <div className="flex items-center gap-1.5 font-bold mb-1">
+                    <Info className="h-3.5 w-3.5 text-blue-500" />
+                    ¿Cómo funciona Kueski Pay?
+                  </div>
+                  <p className="text-blue-700/80 leading-relaxed">
+                    Kueski Pay divide tu compra en pagos quincenales sin intereses. Sin tarjeta de crédito, aprobación en minutos.
+                  </p>
                 </div>
-                <Button onClick={handleVerifyIdentity} className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white">
-                  Verificar Identidad
-                </Button>
-                <Button variant="ghost" onClick={() => setMockValidationState('idle')} className="w-full mt-2 text-gray-500">
-                  Cancelar
-                </Button>
-              </>
-            )}
-            {mockValidationState === 'loading' && (
-              <div className="py-10 flex flex-col items-center">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#0075FF] mb-4"></div>
-                <p className="font-medium text-gray-600">Verificando identidad...</p>
               </div>
             )}
-            {mockValidationState === 'success' && (
-              <div className="py-10 flex flex-col items-center">
-                <div className="bg-[#00E59B]/20 p-4 rounded-full mb-4">
-                  <Check className="h-10 w-10 text-[#00E59B]" />
+
+            {/* Form */}
+            {payFlow === 'form' && (
+              <div className="flex flex-col gap-3">
+                <div className="text-center mb-1">
+                  <h3 className="font-bold text-base text-gray-900">Validación de Identidad</h3>
+                  <p className="text-xs text-gray-500">Proceso rápido · menos de 2 minutos</p>
                 </div>
-                <h3 className="font-bold text-lg text-gray-900 mb-1">Identidad Verificada</h3>
-                <p className="text-sm text-gray-500 mb-6">Tu compra ha sido aprobada con Kueski Pay.</p>
-                <Button onClick={() => setMockValidationState('idle')} className="w-full bg-gray-900 text-white">
+
+                <div className="bg-[#0075FF]/8 border border-[#0075FF]/20 rounded-xl p-3 text-xs text-[#0050CC] font-medium">
+                  Plan seleccionado: <strong>{selectedPeriods} quincenas de {formatCurrency(selectedOption.amount)}</strong>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
+                    placeholder="Nombre completo" defaultValue="" />
+                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
+                    placeholder="Correo electrónico" type="email" />
+                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
+                    placeholder="Teléfono celular" type="tel" />
+                </div>
+
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center gap-2 text-gray-400 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
+                  <div className="text-2xl">📷</div>
+                  <p className="text-xs font-medium text-gray-600">Toca para fotografiar tu INE</p>
+                  <p className="text-[10px] text-gray-400">También acepta Pasaporte o Cédula</p>
+                </div>
+
+                <Button onClick={handleVerify}
+                  className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-11 text-sm rounded-xl">
+                  Verificar y solicitar crédito
+                </Button>
+                <Button variant="ghost" onClick={() => setPayFlow('options')}
+                  className="w-full text-gray-500 text-xs h-8">
+                  ← Regresar
+                </Button>
+              </div>
+            )}
+
+            {/* Loading */}
+            {payFlow === 'loading' && (
+              <div className="flex flex-col items-center justify-center py-12 gap-4">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full border-4 border-blue-100 border-t-[#0075FF] animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Zap className="h-6 w-6 text-[#0075FF]" />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-gray-900">Verificando identidad…</p>
+                  <p className="text-xs text-gray-500 mt-1">Analizando tu historial crediticio</p>
+                </div>
+                <div className="w-full space-y-2 px-4">
+                  {['Verificando datos personales', 'Consultando buró de crédito', 'Aprobando solicitud'].map((step, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+                      <Loader2 className="h-3 w-3 animate-spin text-[#0075FF] shrink-0" />
+                      {step}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Success */}
+            {payFlow === 'success' && (
+              <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
+                <div className="bg-green-100 p-4 rounded-full">
+                  <CheckCircle className="h-12 w-12 text-[#00E59B]" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-gray-900">¡Crédito Aprobado!</h3>
+                  <p className="text-sm text-gray-500 mt-1">Tu solicitud ha sido aprobada con Kueski Pay</p>
+                </div>
+
+                <div className="w-full bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-100 text-left">
+                  <p className="text-xs font-bold text-gray-700 mb-2">Resumen de tu plan:</p>
+                  <div className="space-y-1 text-xs text-gray-600">
+                    <div className="flex justify-between"><span>Monto total</span><strong>{formatCurrency(price)}</strong></div>
+                    <div className="flex justify-between"><span>Quincenas</span><strong>{selectedPeriods}</strong></div>
+                    <div className="flex justify-between"><span>Pago quincenal</span><strong className="text-[#0075FF]">{formatCurrency(selectedOption.amount)}</strong></div>
+                    <div className="flex justify-between"><span>Intereses</span><strong className="text-green-600">$0.00</strong></div>
+                    <div className="flex justify-between"><span>Primer cobro</span><strong>5 de Mayo, 2026</strong></div>
+                  </div>
+                </div>
+
+                <Button onClick={handleSuccessRedirect}
+                  className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-11 text-sm rounded-xl gap-2">
+                  Completar compra en Kueski
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" onClick={() => setPayFlow('options')}
+                  className="text-gray-500 text-xs">
                   Volver al inicio
                 </Button>
               </div>
             )}
-          </div>
+          </>
         )}
 
-        {/* TAB: PRECIOS */}
+        {/* ━━━ TAB: PRECIOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         {activeTab === 'precios' && (
-          <div className="space-y-4">
-            {priceComparisons.map((item, i) => (
-              <Card key={i} className="p-4 rounded-xl border border-gray-200 shadow-sm bg-white">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Store className="h-5 w-5 text-gray-500" />
-                    <span className="font-semibold text-base text-gray-900">{item.store}</span>
-                  </div>
-                  <ExternalLink className="h-5 w-5 text-gray-500 cursor-pointer hover:text-gray-900" />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-bold text-gray-700">Comparando: {product.name.slice(0,30)}…</p>
+              <button onClick={() => { setPricesLoaded(false); setLoadingPrices(true); setTimeout(()=>{ setLoadingPrices(false); setPricesLoaded(true); }, 1200); }}
+                className="text-[#0075FF] text-[10px] flex items-center gap-1 font-semibold">
+                <RefreshCw className="h-3 w-3" /> Actualizar
+              </button>
+            </div>
+
+            {loadingPrices ? (
+              <div className="flex flex-col items-center py-10 gap-3 text-gray-400">
+                <div className="w-8 h-8 border-3 border-blue-200 border-t-[#0075FF] rounded-full animate-spin border-[3px]" />
+                <p className="text-xs">Buscando mejores precios…</p>
+              </div>
+            ) : (
+              <>
+                {/* Best price banner */}
+                {(() => {
+                  const best = comparisons.filter(c => c.inStock).sort((a, b) => a.price - b.price)[0];
+                  const savings = price - best.price;
+                  return savings > 0 ? (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-800">
+                      <p className="font-bold">💡 Mejor precio: {best.store}</p>
+                      <p className="mt-0.5">Ahorras <strong>{formatCurrency(savings)}</strong> vs. Amazon</p>
+                    </div>
+                  ) : null;
+                })()}
+
+                {comparisons.map((item, i) => (
+                  <Card key={i} className={`p-3 rounded-xl border ${!item.inStock ? 'opacity-60' : ''} ${i === 0 ? 'border-[#0075FF]/40 bg-blue-50/30' : 'border-gray-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{item.flag}</span>
+                        <div>
+                          <span className="font-semibold text-sm text-gray-900">{item.store}</span>
+                          {i === 0 && <span className="ml-1.5 text-[10px] bg-[#0075FF] text-white px-1.5 py-0.5 rounded font-bold">Actual</span>}
+                          {!item.inStock && <span className="ml-1.5 text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold">Sin stock</span>}
+                        </div>
+                      </div>
+                      <a href={item.url} target="_blank" rel="noreferrer"
+                        className="text-gray-400 hover:text-gray-700">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <p className="text-gray-400 text-[10px]">Precio</p>
+                        <p className="font-extrabold text-gray-900">{formatCurrency(item.price)}</p>
+                        {item.price < price && (
+                          <p className="text-green-600 text-[10px] font-bold">▼ {formatCurrency(price - item.price)} menos</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-[10px]">Envío</p>
+                        <p className="font-semibold text-gray-700">{item.shipping}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400 text-[10px]">Cashback</p>
+                        <p className="font-semibold text-[#00b87a]">{item.cashback}</p>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700">
+                  <p className="font-bold mb-1">💳 Con Kueski Pay en cualquier tienda</p>
+                  <p>Financia tu compra en {selectedPeriods} quincenas de <strong>{formatCurrency(selectedOption.amount)}</strong> a 0% interés.</p>
                 </div>
-                <div className="w-full h-px bg-gray-200 mb-4"></div>
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-gray-500 font-medium">Precio</span>
-                    <span className="font-bold text-gray-900 text-[15px]">{formatCurrency(item.price)}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-gray-500 font-medium">Envío</span>
-                    <span className="font-bold text-gray-900 text-sm">{item.shipping}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-gray-500 font-medium">Cashback</span>
-                    <span className="font-bold text-[#00E59B] text-sm">{item.cashback}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-gray-500 font-medium">Status</span>
-                    <span className="font-bold text-[#00E59B] text-sm">{item.status}</span>
-                  </div>
-                </div>
-              </Card>
-            ))}
+              </>
+            )}
           </div>
         )}
 
-        {/* TAB: CUPONES */}
+        {/* ━━━ TAB: CUPONES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         {activeTab === 'cupones' && (
-          <div className="space-y-4">
-            {coupons.map((coupon, i) => (
-              <div key={i} className="p-4 border border-dashed border-gray-300 bg-white rounded-xl relative">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100 border-none font-bold px-2 py-0.5 rounded text-xs">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-bold text-gray-700">Códigos activos – Abril 2026</p>
+              <a href="https://www.promodescuentos.com" target="_blank" rel="noreferrer"
+                className="text-[10px] text-[#0075FF] font-semibold flex items-center gap-0.5">
+                Promodescuentos <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            </div>
+
+            {COUPONS.map((coupon, i) => (
+              <div key={i} className="border border-dashed border-gray-300 rounded-xl p-3 bg-white">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="bg-gray-100 text-gray-800 font-mono font-bold text-xs px-2 py-0.5 rounded border border-gray-200">
                       {coupon.code}
-                    </Badge>
-                    {coupon.verified && (
-                      <Badge className="bg-[#00E59B] text-white hover:bg-[#00E59B] border-none font-bold px-2 py-0.5 rounded flex items-center gap-1 text-[10px]">
-                        <Check className="h-3 w-3" /> Verified
-                      </Badge>
+                    </code>
+                    {coupon.verified ? (
+                      <span className="flex items-center gap-0.5 text-[10px] text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded font-bold">
+                        <Check className="h-2.5 w-2.5" /> Verificado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-700 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded font-bold">
+                        Sin verificar
+                      </span>
                     )}
                   </div>
-                  <Button size="sm" className="bg-[#0f172a] hover:bg-[#1e293b] text-white h-8 px-3 rounded-lg font-semibold text-xs gap-1.5 flex items-center">
-                    <Copy className="h-3.5 w-3.5" /> Copy
+                  <Button size="sm"
+                    onClick={() => handleCopy(coupon.code)}
+                    className={`shrink-0 h-7 px-2.5 rounded-lg text-[11px] gap-1 font-bold transition-all ${
+                      copiedCode === coupon.code
+                        ? 'bg-green-500 hover:bg-green-500 text-white'
+                        : 'bg-gray-900 hover:bg-gray-700 text-white'
+                    }`}>
+                    {copiedCode === coupon.code ? (
+                      <><Check className="h-3 w-3" /> ¡Copiado!</>
+                    ) : (
+                      <><Copy className="h-3 w-3" /> Copiar</>
+                    )}
                   </Button>
                 </div>
-                <div className="text-[15px] font-medium text-gray-900 mb-1">{coupon.discount}</div>
-                <div className="text-xs text-gray-500">Expires: {coupon.expires}</div>
+                <p className="text-xs text-gray-700 font-medium">{coupon.discount}</p>
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-[10px] text-gray-400">Vence: {coupon.expires}</p>
+                  <p className="text-[10px] text-gray-400">{coupon.source}</p>
+                </div>
               </div>
             ))}
+
+            <div className="text-center pt-1">
+              <a href="https://www.promodescuentos.com" target="_blank" rel="noreferrer"
+                className="text-xs text-[#0075FF] font-semibold flex items-center justify-center gap-1">
+                Ver más cupones en Promodescuentos <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           </div>
         )}
       </div>
 
-      {/* FOOTER */}
+      {/* ── FOOTER ─────────────────────────────────────────────────────────── */}
       <div className="footer-info text-center justify-center">
-        <span className="text-[11px] font-medium text-gray-500 flex items-center gap-1.5 justify-center">
-          Financiamiento disponible al momento de compra
+        <span className="text-[10px] font-medium text-gray-500 flex items-center gap-1 justify-center">
+          <img src={kueskiLogo} className="h-3 w-3" alt="" />
+          Financiamiento disponible · kueski.com/kueski-pay
         </span>
       </div>
     </div>
