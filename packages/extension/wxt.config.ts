@@ -6,6 +6,9 @@ import { loadEnv } from 'vite';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
+    // 1. NUEVA CORRECCIÓN: Permiso para que funcione browser.storage.local
+    permissions: ['storage'],
+    
     // Necesario para que el content script pueda llamar a la REST API de Supabase
     // desde páginas cross-origin (p.ej. liverpool.com.mx).
     host_permissions: ['https://*.supabase.co/*'],
@@ -20,6 +23,8 @@ export default defineConfig({
         alias: {
           shared: path.resolve(__dirname, '../shared'),
         },
+        // 2. CORRECCIÓN PREVIA: Evita el error "Invalid hook call" de React y Lucide
+        dedupe: ['react', 'react-dom'], 
       },
       define: {
         'import.meta.env.VITE_SUPABASE_URL':

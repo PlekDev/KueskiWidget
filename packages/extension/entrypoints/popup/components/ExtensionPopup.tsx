@@ -81,8 +81,13 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [kueskiUser, setKueskiUser]   = useState<KueskiUser | null>(null);
   const [loadingData, setLoadingData] = useState(true);
 
-  const product = DEMO_PRODUCT;
-  const price   = product.price;
+  // ─── Login State ──────────────────────────────────────────────────────────
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [allUsers, setAllUsers] = useState<KueskiUser[]>([]);
+
+  // ─── Producto dinámico ────────────────────────────────────────────────────
+  const [product, setProduct] = useState<{ name: string; price: number }>(DEMO_PRODUCT);
+  const price = product.price;
 
   const kueskiOptions = [
     { periods: 4,  amount: price / 4  },
@@ -111,14 +116,26 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
           .eq('is_active', true);
         if (merchantData) setMerchants(merchantData.map(MerchantMapper.toDomain));
 
-        // Usuario demo (primer usuario activo)
-        const { data: userData } = await supabase
+        // Todos los usuarios para la pantalla de login
+        const { data: usersData } = await supabase
           .from('kueski_users')
           .select('*')
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle();
-        if (userData) setKueskiUser(KueskiUserMapper.toDomain(userData));
+          .eq('is_active', true);
+
+        if (usersData) {
+          const mappedUsers = usersData.map(KueskiUserMapper.toDomain);
+          setAllUsers(mappedUsers);
+
+          // Revisa sesión
+          const session = await browser.storage.local.get('kueski_session');
+          if (session.kueski_session) {
+            const user = mappedUsers.find(u => u.id === session.kueski_session);
+            if (user) {
+              setKueskiUser(user);
+              setIsLoggedIn(true);
+            }
+          }
+        }
       } catch (err) {
         console.error('[KueskiWidget] Error fetching data:', err);
       } finally {
@@ -126,7 +143,40 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
       }
     };
     fetchAll();
+
+    // Obtener producto real si estamos en una página soportada
+    const getActiveTabProduct = async () => {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          const response = await browser.tabs.sendMessage(tab.id, { action: 'GET_PRODUCT_INFO' });
+          if (response && response.productName && response.price) {
+            setProduct({ name: response.productName, price: response.price });
+          }
+        }
+      } catch (err) {
+        console.log('No content script / not a supported domain');
+      }
+    };
+    getActiveTabProduct();
   }, []);
+
+  const handleLogin = async (userId: string) => {
+    const user = allUsers.find(u => u.id === userId);
+    if (user) {
+      await browser.storage.local.set({ kueski_session: userId });
+      setKueskiUser(user);
+      setIsLoggedIn(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    await browser.storage.local.remove('kueski_session');
+    setKueskiUser(null);
+    setIsLoggedIn(false);
+    setActiveTab('panel');
+    setPayFlow('options');
+  };
 
   // ─── Precios: se cargan al abrir el tab ─────────────────────────────────
   useEffect(() => {
@@ -153,7 +203,55 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     { id: 'pago',    label: 'Pago',    icon: <LayoutTemplate className="h-3.5 w-3.5" /> },
     { id: 'precios', label: 'Precios', icon: <TrendingDown className="h-3.5 w-3.5" /> },
     { id: 'cupones', label: 'Cupones', icon: <Tag className="h-3.5 w-3.5" /> },
+    { id: 'tarjeta', label: 'Tarjeta', icon: <Store className="h-3.5 w-3.5" /> },
   ];
+
+  const handleClose = () => {
+    if (onClose) onClose();
+    else window.close();
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="popup-container flex flex-col justify-center items-center bg-gray-50 text-gray-900">
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 w-full max-w-[320px]">
+          <div className="flex justify-center mb-6">
+            <div className="bg-[#0075FF] p-2 rounded-lg">
+              <Zap className="h-6 w-6 text-white" fill="currentColor" />
+            </div>
+          </div>
+          <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Bienvenido a Kueski</h2>
+          <p className="text-sm text-gray-500 text-center mb-6">Selecciona un usuario de prueba para continuar</p>
+
+          {loadingData ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-[#0075FF]" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {allUsers.map(user => (
+                <div key={user.id}
+                  className="p-3 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-[#0075FF] hover:bg-blue-50 transition-all text-left w-full shadow-sm"
+                  onClick={() => handleLogin(user.id)}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-sm text-gray-900">{user.fullName}</span>
+                    <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {user.maxInstallments} qnas
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Límite:</span>
+                    <span className="font-bold text-gray-700">{formatCurrency(user.creditLimit)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="popup-container">
@@ -165,10 +263,16 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
             <img src={kueskiLogo} className="h-5 w-5" alt="Kueski" />
             <span>Kueski Widget</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}
-            className="text-white hover:bg-white/20 rounded-full h-7 w-7">
-            <X className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={handleLogout}
+              className="text-white hover:bg-white/20 rounded-full h-7 px-2 text-[10px]">
+              Salir
+            </Button>
+            <Button variant="ghost" size="icon" onClick={handleClose}
+              className="text-white hover:bg-white/20 rounded-full h-7 w-7">
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         <div className="kueski-header-card">
           <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-xs">
@@ -349,33 +453,40 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
             {payFlow === 'form' && (
               <div className="flex flex-col gap-3">
                 <div className="text-center mb-1">
-                  <h3 className="font-bold text-base text-gray-900">Validación de Identidad</h3>
-                  <p className="text-xs text-gray-500">Proceso rápido · menos de 2 minutos</p>
+                  <h3 className="font-bold text-base text-gray-900">Confirma tu solicitud</h3>
+                  <p className="text-xs text-gray-500">Autorizas usar tu crédito Kueski para esta compra.</p>
                 </div>
+
                 <div className="bg-[#0075FF]/8 border border-[#0075FF]/20 rounded-xl p-3 text-xs text-[#0050CC] font-medium">
                   Plan: <strong>{selectedPeriods} quincenas de {formatCurrency(selectedOption.amount)}</strong>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
-                    placeholder="Nombre completo"
-                    defaultValue={kueskiUser?.fullName ?? ''} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
-                    placeholder="Correo electrónico" type="email"
-                    defaultValue={kueskiUser?.email ?? ''} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0075FF] outline-none"
-                    placeholder="Teléfono celular" type="tel" />
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Usuario</span>
+                    <span className="font-bold text-gray-900">{kueskiUser?.fullName}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Correo</span>
+                    <span className="font-bold text-gray-900">{kueskiUser?.email}</span>
+                  </div>
+                  <div className="flex justify-between text-xs border-t border-gray-200 pt-2">
+                    <span className="text-gray-500">Crédito Disponible</span>
+                    <span className="font-bold text-[#0075FF]">{kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : ''}</span>
+                  </div>
                 </div>
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center gap-2 text-gray-400 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
-                  <div className="text-2xl">📷</div>
-                  <p className="text-xs font-medium text-gray-600">Toca para fotografiar tu INE</p>
-                  <p className="text-[10px] text-gray-400">También acepta Pasaporte o Cédula</p>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-[9px] text-gray-500 leading-tight">
+                  <Check className="h-3 w-3 text-green-500 inline mr-1" />
+                  La compra se descontará de tu límite de crédito en Kueski Pay.
                 </div>
-                <Button onClick={handleVerify}
-                  className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-11 text-sm rounded-xl">
-                  Verificar y solicitar crédito
-                </Button>
-                <Button variant="ghost" onClick={() => setPayFlow('options')}
-                  className="w-full text-gray-500 text-xs h-8">← Regresar</Button>
+
+                <div className="flex gap-2 mt-1">
+                  <Button variant="outline" onClick={() => setPayFlow('options')} className="flex-1 h-10 text-xs rounded-xl">Atrás</Button>
+                  <Button onClick={handleVerify} className="flex-1 h-10 bg-[#0075FF] hover:bg-[#0050CC] text-white text-xs font-bold rounded-xl">
+                    Autorizar pago
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -554,6 +665,74 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ━━━ TAB: TARJETA VIRTUAL (Kueski Cast) ━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {!loadingData && activeTab === 'tarjeta' && (
+          <div className="space-y-4">
+            <div className="text-center mb-2">
+              <h3 className="font-bold text-base text-gray-900">Kueski Cast</h3>
+              <p className="text-xs text-gray-500">Paga en tiendas no afiliadas usando esta tarjeta virtual ligada a tu crédito Kueski.</p>
+            </div>
+
+            <div className="bg-gradient-to-br from-[#002B7A] to-[#0050CC] rounded-2xl p-5 text-white shadow-lg relative overflow-hidden h-[180px] flex flex-col justify-between border border-[#0075FF]/30">
+              {/* Card visual elements */}
+              <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+              <div className="absolute -left-10 -bottom-10 w-32 h-32 bg-[#00E59B]/20 rounded-full blur-2xl"></div>
+
+              <div className="flex justify-between items-start relative z-10">
+                <div className="flex gap-1.5 items-center">
+                  <div className="bg-white p-1 rounded-sm"><img src={kueskiLogo} className="h-3 w-3" alt="" /></div>
+                  <span className="font-bold text-sm tracking-widest">Kueski</span>
+                </div>
+                <div className="bg-white/20 px-2 py-1 rounded text-[10px] font-mono tracking-widest uppercase">
+                  Virtual
+                </div>
+              </div>
+
+              <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-10 h-7 bg-gradient-to-r from-yellow-200 to-yellow-400 rounded-md opacity-80"></div>
+                  <Zap className="h-4 w-4 text-white/50" />
+                </div>
+
+                <div className="font-mono text-xl tracking-[4px] mb-2 drop-shadow-md cursor-pointer hover:text-yellow-100 transition-colors"
+                  onClick={() => handleCopy('5572 1234 5678 9012')} title="Copiar tarjeta">
+                  5572 1234 5678 9012
+                </div>
+
+                <div className="flex justify-between items-end">
+                  <div className="font-bold text-xs uppercase tracking-wider">{kueskiUser?.fullName || 'USUARIO KUESKI'}</div>
+                  <div className="flex gap-4">
+                    <div>
+                      <div className="text-[8px] text-white/60 uppercase">Vence</div>
+                      <div className="font-mono text-xs">12/28</div>
+                    </div>
+                    <div className="cursor-pointer hover:text-yellow-100" onClick={() => handleCopy('456')} title="Copiar CVV">
+                      <div className="text-[8px] text-white/60 uppercase">CVV</div>
+                      <div className="font-mono text-xs">456</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 text-[#0075FF] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold mb-1">¿Cómo funciona?</p>
+                  <p className="text-blue-700 leading-tight">Copia los datos de la tarjeta dando clic sobre ellos. Úsalos como método de pago en cualquier tienda en línea como Mercado Libre. El monto se descontará de tu crédito disponible: <strong>{kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : ''}</strong>.</p>
+                </div>
+              </div>
+            </div>
+
+            {copiedCode && (
+              <div className="bg-green-500 text-white text-xs text-center p-2 rounded-lg font-bold flex items-center justify-center gap-2 animate-in fade-in zoom-in duration-200">
+                <CheckCircle className="h-4 w-4" /> ¡Dato copiado al portapapeles!
+              </div>
+            )}
           </div>
         )}
       </div>

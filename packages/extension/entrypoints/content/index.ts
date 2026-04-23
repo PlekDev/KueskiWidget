@@ -60,5 +60,19 @@ export default defineContentScript({
       }, 250);
     };
     new MutationObserver(onMutation).observe(document.body, { childList: true, subtree: true });
+
+    // Mensajes desde el popup
+    browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+      if (message.action === 'GET_PRODUCT_INFO') {
+        const hostname = location.hostname.toLowerCase();
+        const merchant = await getActiveMerchant(hostname);
+        if (merchant) {
+          const productInfo = extractPriceAndProduct(merchant);
+          sendResponse(productInfo);
+        } else {
+          sendResponse(null);
+        }
+      }
+    });
   },
 });
