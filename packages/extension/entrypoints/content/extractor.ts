@@ -1,8 +1,6 @@
-import type { Merchant } from 'shared/models';
 import type { ExtractedData, PriceExtractor } from './types';
 
-// Selectores universales de precio oferta/descuento.
-// [... i] = atributo-contiene case-insensitive, cacha variaciones de naming.
+// Selectores genéricos de precio con descuento/oferta
 const GENERIC_DISCOUNT_SELECTORS = [
   '[class*="descPrecio" i]',
   '[class*="desc-precio" i]',
@@ -19,9 +17,27 @@ const GENERIC_DISCOUNT_SELECTORS = [
   '[id*="priceDiscount" i]',
   '[id*="salePrice" i]',
   '[id*="offerPrice" i]',
+  '[class*="current-price" i]',
+  '[class*="final-price" i]',
+  '[class*="precio-actual" i]',
+  '[class*="precio-final" i]',
+  '[class*="precio-especial" i]',
 ];
 
-// Llave = merchant.domain (lowercase). Debe matchear exacto la columna `domain`.
+// Selectores genéricos de título
+const GENERIC_TITLE_SELECTORS = [
+  '[itemprop="name"]',
+  'h1[class*="product" i]',
+  'h1[class*="titulo" i]',
+  'h1[class*="title" i]',
+  '[class*="product-title" i]',
+  '[class*="product-name" i]',
+  '[class*="nombre-producto" i]',
+  '[id*="product-title" i]',
+  '[id*="productTitle" i]',
+  'h1',
+];
+
 const EXTRACTORS: Record<string, PriceExtractor> = {
   'liverpool.com.mx': {
     priceSelectors: ['.price-main', '[class*="price"]', '.product-price'],
@@ -43,32 +59,60 @@ const EXTRACTORS: Record<string, PriceExtractor> = {
     titleSelectors: ['h1', '.product-name', '[class*="title"]'],
     fallbackTitle: 'Producto PUMA',
   },
+  'amazon.com.mx': {
+    // Contenedor específico del precio principal — evita precios de sidebars/recomendaciones
+    priceSelectors: [
+      '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+      '#apex_offerDisplay_desktop .a-price .a-offscreen',
+      '#priceblock_ourprice',
+      '#priceblock_dealprice',
+      '.a-price .a-offscreen',
+    ],
+    titleSelectors: ['#productTitle', '#title', 'h1'],
+    fallbackTitle: 'Producto Amazon',
+  },
+  'mercadolibre.com.mx': {
+    priceSelectors: [
+      '[class*="ui-pdp-price__main-price"] .andes-money-amount__fraction',
+      '[class*="price-tag-fraction"]',
+      '[class*="andes-money-amount__fraction"]',
+    ],
+    titleSelectors: ['h1.ui-pdp-title', '[class*="ui-pdp-title"]', 'h1'],
+    fallbackTitle: 'Producto MercadoLibre',
+  },
+  'walmart.com.mx': {
+    priceSelectors: [
+      '[itemprop="price"]',
+      '[class*="price-characteristic" i]',
+      '[class*="current-price" i]',
+    ],
+    titleSelectors: ['h1[itemprop="name"]', 'h1', '[itemprop="name"]'],
+    fallbackTitle: 'Producto Walmart',
+  },
+  'palacio.com.mx': {
+    priceSelectors: ['[class*="price"]', '[class*="precio"]'],
+    titleSelectors: ['h1', '[class*="product-name" i]'],
+    fallbackTitle: 'Producto El Palacio',
+  },
+  'costco.com.mx': {
+    priceSelectors: ['[class*="price"]', '[class*="precio"]', '.your-price'],
+    titleSelectors: ['h1', '[class*="product-title" i]'],
+    fallbackTitle: 'Producto Costco',
+  },
 };
 
 const queryText = (selectors: string[]): string | null => {
   for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (el?.textContent?.trim()) return el.textContent.trim();
+    try {
+      const el = document.querySelector(sel);
+      const text = el?.getAttribute('content') ?? el?.textContent?.trim();
+      if (text) return text;
+    } catch { /* selector inválido */ }
   }
   return null;
 };
 
-const queryAllTexts = (selectors: string[]): string[] => {
-  const out: string[] = [];
-  for (const sel of selectors) {
-    try {
-      document.querySelectorAll(sel).forEach(el => {
-        const t = el.textContent?.trim();
-        if (t) out.push(t);
-      });
-    } catch {
-      // selector invalido, ignora
-    }
-  }
-  return out;
-};
-
-// "$13,299.00 $11,999.00 MXN" → [13299, 11999]
+// "$13,299.00" → 13299
 const parseAllPrices = (t: string): number[] => {
   const out: number[] = [];
   const matches = t.matchAll(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d+/g);
@@ -79,56 +123,67 @@ const parseAllPrices = (t: string): number[] => {
   return out;
 };
 
-// Capa 1: JSON-LD (schema.org Product) — colecta TODOS los precios del Product.
-const fromJsonLd = (): { prices: number[]; name: string } => {
-  const prices: number[] = [];
-  let name = '';
+const isSanePrice = (p: number) => p >= 100 && p < 1_000_000;
 
-  const toNumber = (raw: unknown): number | null => {
+// Capa 1: JSON-LD — obtiene el precio del PRIMER Product encontrado.
+//
+// IMPORTANTE: ignoramos lowPrice/highPrice de AggregateOffer porque Amazon (y otros)
+// usan AggregateOffer.lowPrice para el precio mínimo de vendedores terceros, que puede
+// ser muy inferior al precio real que muestra la página.
+const fromJsonLd = (): { price: number | null; name: string } => {
+  const toNum = (raw: unknown): number | null => {
     if (raw == null) return null;
-    const n = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
+    const n = typeof raw === 'string' ? parseFloat(raw.replace(/,/g, '')) : Number(raw);
     return isFinite(n) && n > 0 ? n : null;
   };
 
-  // Recorre offer/AggregateOffer/priceSpecification en cualquier profundidad.
-  const walkOffer = (o: unknown): void => {
-    if (!o) return;
-    if (Array.isArray(o)) { o.forEach(walkOffer); return; }
-    if (typeof o !== 'object') return;
+  // Extrae un precio de un nodo Offer/AggregateOffer.
+  // Para AggregateOffer sólo usa `price`, nunca lowPrice/highPrice.
+  const offerPrice = (o: unknown): number | null => {
+    if (!o || typeof o !== 'object') return null;
     const obj = o as Record<string, unknown>;
-    for (const key of ['price', 'lowPrice', 'highPrice']) {
-      const n = toNumber(obj[key]);
-      if (n !== null) prices.push(n);
+    // El campo `price` es el precio actual del vendedor principal.
+    const direct = toNum(obj['price']);
+    if (direct !== null) return direct;
+    // Para Offer (no Aggregate) podemos usar lowPrice como alternativa.
+    if (obj['@type'] !== 'AggregateOffer') {
+      return toNum(obj['lowPrice']);
     }
-    walkOffer(obj.offers);
-    walkOffer(obj.priceSpecification);
+    return null;
   };
 
-  const scripts = document.querySelectorAll<HTMLScriptElement>(
-    'script[type="application/ld+json"]',
-  );
+  // Colecta precios de un nodo offers (puede ser array).
+  const collectOffers = (offers: unknown): number[] => {
+    if (Array.isArray(offers)) {
+      return offers.map(offerPrice).filter((p): p is number => p !== null);
+    }
+    const p = offerPrice(offers);
+    return p !== null ? [p] : [];
+  };
+
+  const scripts = document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]');
   for (const s of scripts) {
     try {
-      const raw = s.textContent;
-      if (!raw) continue;
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(s.textContent ?? '');
       const roots = Array.isArray(parsed) ? parsed : [parsed];
       for (const root of roots) {
         const nodes = root['@graph'] ?? [root];
-        for (const node of nodes) {
-          if (node?.['@type'] !== 'Product') continue;
-          if (!name && node.name) name = String(node.name);
-          walkOffer(node.offers);
+        for (const node of (nodes as unknown[])) {
+          if ((node as Record<string, unknown>)?.['@type'] !== 'Product') continue;
+          const n = node as Record<string, unknown>;
+          const prices = collectOffers(n['offers']).filter(isSanePrice);
+          if (prices.length > 0) {
+            // Devuelve el precio más bajo de las ofertas REALES (no aggregate lowPrice)
+            return { price: Math.min(...prices), name: String(n['name'] ?? '') };
+          }
         }
       }
-    } catch {
-      // JSON invalido, seguir
-    }
+    } catch { /* JSON inválido */ }
   }
-  return { prices, name };
+  return { price: null, name: '' };
 };
 
-// Capa 2: meta tags / microdata
+// Capa 2: meta tags Open Graph / microdata
 const fromMeta = (): { price: number; name: string } | null => {
   const metaContent = (selector: string): string | null =>
     document.querySelector<HTMLMetaElement>(selector)?.getAttribute('content') ?? null;
@@ -140,7 +195,7 @@ const fromMeta = (): { price: number; name: string } | null => {
     document.querySelector('[itemprop="price"]')?.getAttribute('content') ??
     null;
   if (!raw) return null;
-  const price = parseFloat(raw);
+  const price = parseFloat(raw.replace(/,/g, ''));
   if (!(price > 0)) return null;
   const name =
     metaContent('meta[property="og:title"]') ??
@@ -149,42 +204,71 @@ const fromMeta = (): { price: number; name: string } | null => {
   return { price, name };
 };
 
-const isSanePrice = (p: number) => p >= 100 && p < 1_000_000;
+const getGenericTitle = (): string => {
+  const og = document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content;
+  if (og?.trim()) return og.trim().slice(0, 80);
+  return document.title.trim().slice(0, 80) || location.hostname.replace(/^www\./, '');
+};
 
-export const extractPriceAndProduct = (merchant: Merchant): ExtractedData | null => {
-  const extractor = EXTRACTORS[merchant.domain.toLowerCase()];
-  const fallbackTitle = extractor?.fallbackTitle ?? `Producto ${merchant.name}`;
+const findExtractor = (hostname: string): PriceExtractor | undefined => {
+  const host = hostname.toLowerCase();
+  const key = Object.keys(EXTRACTORS).find(k => host === k || host.endsWith('.' + k));
+  return key ? EXTRACTORS[key] : undefined;
+};
 
-  const candidates: number[] = [];
-  let name = '';
+// Estrategia: devuelve en cuanto encuentra un precio confiable.
+// No acumula todos los precios del DOM; eso causaba falsos positivos
+// cuando la página tiene otros productos en sidebars/recomendaciones.
+export const extractPriceAndProduct = (): ExtractedData | null => {
+  const hostname = location.hostname.toLowerCase();
+  const extractor = findExtractor(hostname);
 
-  // 1. JSON-LD: todos los precios del Product (oferta, lista, aggregate)
+  const title = () =>
+    queryText(GENERIC_TITLE_SELECTORS) ?? getGenericTitle();
+
+  // 1. JSON-LD — más fiable: estructura semántica del producto principal
   const ld = fromJsonLd();
-  candidates.push(...ld.prices);
-  if (ld.name) name = ld.name;
+  if (ld.price !== null && isSanePrice(ld.price)) {
+    return {
+      price: ld.price,
+      productName: ld.name || title(),
+      currency: 'MXN',
+    };
+  }
 
-  // 2. Meta tags / microdata
+  // 2. Meta tags (og:price, product:price) — confiables, un solo valor
   const meta = fromMeta();
-  if (meta) {
-    candidates.push(meta.price);
-    if (!name) name = meta.name;
+  if (meta && isSanePrice(meta.price)) {
+    return {
+      price: meta.price,
+      productName: meta.name || title(),
+      currency: 'MXN',
+    };
   }
 
-  // 3. Selectores universales de descuento (siempre, indep. del merchant)
-  const discountTexts = queryAllTexts(GENERIC_DISCOUNT_SELECTORS);
-  discountTexts.forEach(t => candidates.push(...parseAllPrices(t)));
-
-  // 4. Selectores CSS del merchant — sólo si aún no hay candidatos
-  if (candidates.length === 0 && extractor) {
-    const priceTexts = queryAllTexts(extractor.priceSelectors);
-    priceTexts.forEach(t => candidates.push(...parseAllPrices(t)));
-    const title = queryText(extractor.titleSelectors);
-    if (!name && title) name = title;
+  // 3. Selectores específicos del dominio — primer match solamente
+  if (extractor) {
+    const priceText = queryText(extractor.priceSelectors);
+    if (priceText) {
+      const prices = parseAllPrices(priceText).filter(isSanePrice);
+      if (prices.length > 0) {
+        const name = queryText([...extractor.titleSelectors, ...GENERIC_TITLE_SELECTORS]) ?? title();
+        return { price: Math.min(...prices), productName: name, currency: 'MXN' };
+      }
+    }
   }
 
-  // Min(sane) = precio de oferta (descarta precio tachado/lista).
-  const sane = candidates.filter(isSanePrice);
-  if (sane.length === 0) return null;
+  // 4. Selectores genéricos de descuento — primer elemento que tenga precio válido
+  for (const sel of GENERIC_DISCOUNT_SELECTORS) {
+    try {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
+      if (prices.length > 0) {
+        return { price: Math.min(...prices), productName: title(), currency: 'MXN' };
+      }
+    } catch { /* selector inválido */ }
+  }
 
-  return { price: Math.min(...sane), productName: name || fallbackTitle, currency: 'MXN' };
+  return null;
 };

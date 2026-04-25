@@ -2,7 +2,6 @@ import { supabase } from 'shared/supabase';
 import { MerchantMapper } from 'shared/mappers';
 import type { Merchant } from 'shared/models';
 
-// Solo sitios .com / .mx (incluye .com.mx). Filtra TLDs sospechosos antes de DB.
 const ALLOWED_TLDS = ['.com', '.mx'];
 
 export const hasAllowedTld = (host: string): boolean =>
@@ -12,7 +11,6 @@ export const isBlacklisted = async (hostname: string): Promise<boolean> => {
   const { data } = await supabase.from('blacklist').select('domain');
   if (!data) return false;
   const host = hostname.toLowerCase();
-  // Suffix match: bloquea subdominios aunque DB guarde solo el dominio base.
   return data.some(b => {
     const d = b.domain.toLowerCase();
     return host === d || host.endsWith('.' + d);
@@ -28,10 +26,28 @@ export const getActiveMerchant = async (hostname: string): Promise<Merchant | nu
   if (error || !data) return null;
 
   const host = hostname.toLowerCase();
-  // Suffix estricto: 'liverpool.com.mx.phish.ru' NO matchea liverpool.com.mx.
   const row = data.find(m => {
     const d = m.domain.toLowerCase();
     return host === d || host.endsWith('.' + d);
   });
   return row ? MerchantMapper.toDomain(row) : null;
+};
+
+// Dominios con convenio oficial de Kueski Pay (independiente de Supabase).
+// Usados para mostrar la notificación "Esta tienda acepta Kueski Pay".
+const KUESKI_PAY_PARTNERS = [
+  'amazon.com.mx',
+  'liverpool.com.mx',
+  'elektra.com.mx',
+  'officedepot.com.mx',
+  'mx.puma.com',
+  'mercadolibre.com.mx',
+  'walmart.com.mx',
+  'palacio.com.mx',
+  'costco.com.mx',
+];
+
+export const isKueskiPayPartner = (hostname: string): boolean => {
+  const host = hostname.toLowerCase();
+  return KUESKI_PAY_PARTNERS.some(d => host === d || host.endsWith('.' + d));
 };

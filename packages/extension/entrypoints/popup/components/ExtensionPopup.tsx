@@ -20,9 +20,6 @@ type PayFlow = 'options' | 'form' | 'loading' | 'success';
 const formatCurrency = (amount: number) =>
   amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
-// ─── Producto demo (en producción vendrá del content script via messaging) ───
-const DEMO_PRODUCT = { name: 'Apple iPhone 15 128GB', price: 18999 };
-
 // ─── Price comparison (generada desde merchants de Supabase) ─────────────────
 interface PriceResult {
   store: string;
@@ -82,6 +79,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [loadingData, setLoadingData] = useState(true);
 
   // ─── Login State ──────────────────────────────────────────────────────────
+  const [checkingSession, setCheckingSession] = useState(true); // true mientras verificamos sesión guardada
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [allUsers, setAllUsers] = useState<KueskiUser[]>([]);
   const [authEmail, setAuthEmail] = useState('');
@@ -90,9 +88,9 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  // ─── Producto dinámico ────────────────────────────────────────────────────
-  const [product, setProduct] = useState<{ name: string; price: number }>(DEMO_PRODUCT);
-  const price = product.price;
+  // ─── Producto detectado de la página activa (null = no estamos en producto) ─
+  const [product, setProduct] = useState<{ name: string; price: number } | null>(null);
+  const price = product?.price ?? 0;
 
   const kueskiOptions = [
     { periods: 4,  amount: price / 4  },
@@ -107,44 +105,39 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     const fetchAll = async () => {
       setLoadingData(true);
       try {
-        // Cupones/promociones verificadas
-        const { data: promoData } = await supabase
-          .from('promotions')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (promoData) setPromotions(promoData.map(PromotionMapper.toDomain));
+        // Verificar sesión PRIMERO — no depende de que los otros fetches tengan éxito.
+        // Si hay sesión válida el usuario está autenticado, independientemente de kueski_users.
+        const { data: { session } } = await supabase.auth.getSession();
+        const sessionEmail = session?.user?.email?.toLowerCase() ?? null;
+        if (sessionEmail) setIsLoggedIn(true);
+        setCheckingSession(false); // ya sabemos si hay sesión, mostramos la UI correcta
 
-        // Merchants activos
-        const { data: merchantData } = await supabase
-          .from('merchants')
-          .select('*')
-          .eq('is_active', true);
-        if (merchantData) setMerchants(merchantData.map(MerchantMapper.toDomain));
+        if (!sessionEmail) return; // sin sesión no cargamos datos privados
 
-        // Todos los usuarios para la pantalla de login
-        const { data: usersData } = await supabase
-          .from('kueski_users')
-          .select('*')
-          .eq('is_active', true);
+        // Fetch paralelo de todos los datos necesarios
+        const [promoRes, merchantRes, usersRes] = await Promise.all([
+          supabase.from('promotions').select('*').order('created_at', { ascending: false }),
+          supabase.from('merchants').select('*').eq('is_active', true),
+          supabase.from('kueski_users').select('*').eq('is_active', true),
+        ]);
 
-        if (usersData) {
-          const mappedUsers = usersData.map(KueskiUserMapper.toDomain);
+        if (promoRes.data)    setPromotions(promoRes.data.map(PromotionMapper.toDomain));
+        if (merchantRes.data) setMerchants(merchantRes.data.map(MerchantMapper.toDomain));
+
+        if (usersRes.data) {
+          const mappedUsers = usersRes.data.map(KueskiUserMapper.toDomain);
           setAllUsers(mappedUsers);
-
-          // Revisa sesión Supabase
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.email) {
-            const user = mappedUsers.find(u => u.email === session.user.email);
-            if (user) {
-              setKueskiUser(user);
-              setIsLoggedIn(true);
-            }
-          }
+          // Matching case-insensitive para evitar problemas si el email tiene mayúsculas
+          const kueskiRecord = mappedUsers.find(
+            u => u.email.toLowerCase() === sessionEmail,
+          );
+          if (kueskiRecord) setKueskiUser(kueskiRecord);
         }
       } catch (err) {
         console.error('[KueskiWidget] Error fetching data:', err);
       } finally {
         setLoadingData(false);
+        setCheckingSession(false); // garantiza que el spinner siempre desaparece
       }
     };
     fetchAll();
@@ -204,7 +197,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     }
   }, [activeTab, merchants]);
 
-  const comparisons = buildComparisons(price, product.name, merchants);
+  const comparisons = buildComparisons(price, product?.name ?? '', merchants);
 
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code).catch(() => {});
@@ -228,6 +221,16 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     if (onClose) onClose();
     else window.close();
   };
+
+  // Mientras verificamos si hay sesión guardada mostramos un spinner.
+  // Esto evita el flash del login form en cada apertura del popup.
+  if (checkingSession) {
+    return (
+      <div className="popup-container flex flex-col justify-center items-center bg-gray-50">
+        <div className="w-8 h-8 border-[3px] border-blue-200 border-t-[#0075FF] rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
@@ -303,30 +306,36 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               className="text-white hover:bg-white/20 rounded-full h-7 px-2 text-[10px]">
               Salir
             </Button>
-            <Button variant="ghost" size="icon" onClick={handleClose}
-              className="text-white hover:bg-white/20 rounded-full h-7 w-7">
-              <X className="h-3.5 w-3.5" />
-            </Button>
           </div>
         </div>
         <div className="kueski-header-card">
-          <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-xs">
-            <Zap className="h-3.5 w-3.5 fill-yellow-300" />
-            Mejor Opción · {selectedPeriods} quincenas a 0% interés
-          </div>
-          <div className="flex justify-between items-center">
-            <div>
-              <span className="text-2xl font-extrabold text-white">{formatCurrency(selectedOption.amount)}</span>
-              <span className="text-white/80 text-xs ml-1">/ quincena</span>
+          {product ? (
+            <>
+              <div className="flex items-center gap-1.5 mb-2 text-yellow-300 font-semibold text-xs">
+                <Zap className="h-3.5 w-3.5 fill-yellow-300" />
+                Mejor Opción · {selectedPeriods} quincenas a 0% interés
+              </div>
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-2xl font-extrabold text-white">{formatCurrency(selectedOption.amount)}</span>
+                  <span className="text-white/80 text-xs ml-1">/ quincena</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-white/70">Total producto</div>
+                  <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
+                </div>
+                <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-2 py-0.5 text-xs">
+                  0% interés
+                </Badge>
+              </div>
+              <p className="text-white/60 text-[10px] mt-2 truncate">{product.name}</p>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-white/70 text-xs">
+              <ShoppingCart className="h-4 w-4 shrink-0" />
+              <span>Navega a un producto para ver opciones de pago</span>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-white/70">Total producto</div>
-              <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
-            </div>
-            <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-2 py-0.5 text-xs">
-              0% interés
-            </Badge>
-          </div>
+          )}
         </div>
       </div>
 
@@ -419,7 +428,16 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
         )}
 
         {/* ━━━ TAB: PAGO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {!loadingData && activeTab === 'pago' && (
+        {!loadingData && activeTab === 'pago' && !product && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <ShoppingCart className="h-10 w-10 text-gray-300" />
+            <p className="text-sm font-bold text-gray-500">Sin producto detectado</p>
+            <p className="text-xs text-gray-400 max-w-[200px]">
+              Navega a la página de un producto en una tienda en línea y abre el widget.
+            </p>
+          </div>
+        )}
+        {!loadingData && activeTab === 'pago' && !!product && (
           <>
             {payFlow === 'options' && (
               <div className="flex flex-col gap-3">
@@ -428,7 +446,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <ShoppingCart className="h-5 w-5 text-blue-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-900 truncate">{product.name}</p>
+                    <p className="text-xs font-bold text-gray-900 truncate">{product?.name}</p>
                     <p className="text-xs text-gray-500">Precio: <strong className="text-[#0075FF]">{formatCurrency(price)}</strong></p>
                   </div>
                 </div>
@@ -579,7 +597,16 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
         )}
 
         {/* ━━━ TAB: PRECIOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {!loadingData && activeTab === 'precios' && (
+        {!loadingData && activeTab === 'precios' && !product && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <TrendingDown className="h-10 w-10 text-gray-300" />
+            <p className="text-sm font-bold text-gray-500">Sin producto detectado</p>
+            <p className="text-xs text-gray-400 max-w-[200px]">
+              Abre el widget desde la página de un producto para comparar precios entre tiendas.
+            </p>
+          </div>
+        )}
+        {!loadingData && activeTab === 'precios' && !!product && (
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-bold text-gray-700">Comparando: {product.name.slice(0, 28)}…</p>

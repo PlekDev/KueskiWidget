@@ -1,4 +1,4 @@
-import { getActiveMerchant, hasAllowedTld, isBlacklisted } from './detector';
+import { getActiveMerchant, hasAllowedTld, isBlacklisted, isKueskiPayPartner } from './detector';
 import { extractPriceAndProduct } from './extractor';
 import { renderWidget } from './widget';
 
@@ -14,7 +14,7 @@ export default defineContentScript({
 
       const hostname = location.hostname.toLowerCase();
 
-      // 1. TLD gate (antes de pegarle a la DB)
+      // 1. TLD gate
       if (!hasAllowedTld(hostname)) return;
 
       // 2. Blacklist
@@ -23,17 +23,24 @@ export default defineContentScript({
         return;
       }
 
-      // 3. Merchant activo
+      // 3. Intentar obtener merchant de Supabase (opcional — aporta cashback y nombre)
+      //    No bloqueamos si no está registrado; el widget funciona igual.
       const merchant = await getActiveMerchant(hostname);
-      if (!merchant) return;
 
-      // 4. Precio
-      const data = extractPriceAndProduct(merchant);
+      // 4. Extraer precio y producto de la página (funciona en cualquier tienda)
+      const data = extractPriceAndProduct();
       if (!data || data.price < 100) return;
 
+      // 5. Determinar si es un partner oficial de Kueski Pay
+      //    (Supabase merchant activo OR en la lista hardcoded de convenios)
+      const isPartner = !!merchant || isKueskiPayPartner(hostname);
+
       injected = true;
-      document.body.appendChild(renderWidget(merchant, data));
-      console.log(`Kueski widget inyectado: ${merchant.name} @ ${data.price}`);
+      document.body.appendChild(renderWidget(merchant, data, isPartner));
+      console.log(
+        `Kueski widget inyectado: ${data.productName} @ ${data.price} MXN` +
+        (isPartner ? ' [Kueski Pay Partner]' : ' [modo genérico]'),
+      );
     };
 
     const tryInject = () => setTimeout(injectWidget, 1500);
@@ -44,8 +51,7 @@ export default defineContentScript({
       tryInject();
     }
 
-    // SPA observer: debounced para no ejecutar en cada mutación del DOM.
-    // Solo actuamos cuando la URL cambia (SPA navigation).
+    // SPA observer: solo actúa cuando cambia la URL
     let lastUrl = location.href;
     let pending = 0;
     const onMutation = () => {
@@ -61,17 +67,18 @@ export default defineContentScript({
     };
     new MutationObserver(onMutation).observe(document.body, { childList: true, subtree: true });
 
-    // Mensajes desde el popup
-    browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    // Mensajes desde el popup — responde siempre que haya producto, aunque el merchant
+    // no esté en Supabase (mode genérico).
+    // IMPORTANTE: no usar async aquí. Chrome cierra el canal de mensajes cuando el listener
+    // retorna, por lo que sendResponse llegaría tarde. Retornar `true` mantiene el canal abierto.
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.action === 'GET_PRODUCT_INFO') {
         const hostname = location.hostname.toLowerCase();
-        const merchant = await getActiveMerchant(hostname);
-        if (merchant) {
-          const productInfo = extractPriceAndProduct(merchant);
-          sendResponse(productInfo);
-        } else {
-          sendResponse(null);
-        }
+        getActiveMerchant(hostname)
+          .then(merchant => extractPriceAndProduct())
+          .then(productInfo => sendResponse(productInfo ?? null))
+          .catch(() => sendResponse(null));
+        return true; // mantiene el canal abierto para la respuesta async
       }
     });
   },

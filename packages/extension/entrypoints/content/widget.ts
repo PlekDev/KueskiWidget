@@ -25,6 +25,46 @@ const STYLES = `
     font-weight: 800; padding: 2px 8px; border-radius: 20px;
   }
 
+  /* Toast de notificación "Esta tienda acepta Kueski Pay" */
+  .kueski-toast {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    right: 0;
+    background: white;
+    border: 1.5px solid #00C473;
+    border-radius: 12px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+    font-size: 12px;
+    font-weight: 700;
+    font-family: system-ui, sans-serif;
+    white-space: nowrap;
+    color: #063a1f;
+    pointer-events: none;
+    animation: toastIn 0.4s ease 0.6s both, toastOut 0.4s ease 5.5s forwards;
+  }
+  .kueski-toast .toast-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #00C473; flex-shrink: 0;
+    box-shadow: 0 0 0 2px rgba(0,196,115,0.3);
+    animation: pulse 1.5s ease infinite 1s;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(0,196,115,0.3); }
+    50%       { box-shadow: 0 0 0 5px rgba(0,196,115,0.15); }
+  }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(14px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes toastOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+
   .kueski-panel {
     position: absolute; bottom: 64px; right: 0;
     width: 340px; background: white; border-radius: 16px;
@@ -48,6 +88,15 @@ const STYLES = `
   .panel-header .subtitle { font-size: 11px; opacity: 0.85; }
   .panel-header .price-big { font-size: 26px; font-weight: 900; margin: 8px 0 2px; }
   .panel-header .price-label { font-size: 11px; opacity: 0.8; }
+
+  .partner-banner {
+    display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    background: rgba(0,196,115,0.2); border: 1px solid rgba(0,196,115,0.5);
+    border-radius: 8px; padding: 5px 10px;
+    font-size: 11px; font-weight: 700; color: #c8ffe8;
+  }
+  .partner-banner[hidden] { display: none; }
+
   .cashback-tag {
     display: inline-block; margin-top: 6px;
     background: #00E59B; color: #0a1628; font-size: 11px;
@@ -91,8 +140,7 @@ const STYLES = `
   .close-btn:hover { background: rgba(255,255,255,0.35); }
 `;
 
-// Construimos via createElement en vez de template strings con interpolación
-// para evitar cualquier riesgo de XSS desde merchant.name / productName (vienen de DB y del DOM externo).
+// Construimos via createElement para evitar XSS desde datos externos.
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   opts: { class?: string; text?: string; html?: string; attrs?: Record<string, string> } = {},
@@ -100,7 +148,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   if (opts.class) node.className = opts.class;
   if (opts.text !== undefined) node.textContent = opts.text;
-  if (opts.html !== undefined) node.innerHTML = opts.html; // Solo para markup estático controlado por nosotros.
+  if (opts.html !== undefined) node.innerHTML = opts.html; // Solo markup estático controlado.
   if (opts.attrs) for (const [k, v] of Object.entries(opts.attrs)) node.setAttribute(k, v);
   return node;
 };
@@ -125,7 +173,9 @@ const buildOption = (o: Installment, price: number, featured: boolean): HTMLElem
   return wrap;
 };
 
-export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLElement => {
+// merchant puede ser null en tiendas no registradas en Supabase (modo genérico).
+// isPartner indica que hay convenio oficial con Kueski Pay.
+export const renderWidget = (merchant: Merchant | null, data: ExtractedData, isPartner: boolean): HTMLElement => {
   const price = data.price;
   const options: Installment[] = [
     { periods: 4,  amount: price / 4 },
@@ -138,8 +188,6 @@ export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLEleme
     ? data.productName.slice(0, 50) + '…'
     : data.productName;
 
-  // Id random sin "kueski": algunos merchants (Office Depot) corren un script que
-  // busca #kueski-root en el DOM y lo ocultan para favorecer a otro BNPL.
   const hostId = 'kp-' + Math.random().toString(36).slice(2, 10);
   const container = el('div', { attrs: { id: hostId, 'data-kp': '1' } });
   container.style.cssText =
@@ -147,6 +195,14 @@ export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLEleme
 
   const shadow = container.attachShadow({ mode: 'open' });
   shadow.appendChild(el('style', { text: STYLES }));
+
+  // Toast "Esta tienda acepta Kueski Pay" — aparece automáticamente si es partner
+  if (isPartner) {
+    const toast = el('div', { class: 'kueski-toast' });
+    toast.appendChild(el('span', { class: 'toast-dot' }));
+    toast.appendChild(document.createTextNode('Esta tienda acepta Kueski Pay'));
+    shadow.appendChild(toast);
+  }
 
   // Panel
   const panel = el('div', { class: 'kueski-panel', attrs: { id: 'panel' } });
@@ -156,11 +212,21 @@ export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLEleme
   header.appendChild(closeBtn);
   header.appendChild(el('h3', { text: '💳 Paga con Kueski Pay' }));
   header.appendChild(el('p', { class: 'subtitle', text: productShort }));
+
   const priceBig = el('div', { class: 'price-big', text: fmt(options[0].amount) });
   const priceLabel = el('div', { class: 'price-label', text: 'por quincena · 4 quincenas · 0% interés' });
   header.appendChild(priceBig);
   header.appendChild(priceLabel);
-  if (merchant.cashbackPercent > 0) {
+
+  // Banner de partner dentro del panel (visible siempre al abrir)
+  if (isPartner) {
+    const banner = el('div', { class: 'partner-banner' });
+    banner.appendChild(el('span', { html: '✓' }));
+    banner.appendChild(document.createTextNode(' Kueski Pay aceptado en esta tienda'));
+    header.appendChild(banner);
+  }
+
+  if (merchant && merchant.cashbackPercent > 0) {
     header.appendChild(el('span', {
       class: 'cashback-tag',
       text: `🎁 ${merchant.cashbackPercent}% cashback en ${merchant.name}`,
@@ -187,7 +253,6 @@ export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLEleme
 
   // Botón flotante
   const mainBtn = el('button', { class: 'kueski-btn', attrs: { id: 'mainBtn', type: 'button' } });
-  // SVG estático sin datos del usuario.
   mainBtn.innerHTML =
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2">' +
     '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
@@ -214,7 +279,6 @@ export const renderWidget = (merchant: Merchant, data: ExtractedData): HTMLEleme
     });
   });
 
-  // noopener,noreferrer evita que la nueva pestaña acceda a window.opener.
   ctaBtn.addEventListener('click', () => {
     window.open('https://kueski.com/kueski-pay', '_blank', 'noopener,noreferrer');
   });
