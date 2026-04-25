@@ -84,6 +84,11 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   // ─── Login State ──────────────────────────────────────────────────────────
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [allUsers, setAllUsers] = useState<KueskiUser[]>([]);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   // ─── Producto dinámico ────────────────────────────────────────────────────
   const [product, setProduct] = useState<{ name: string; price: number }>(DEMO_PRODUCT);
@@ -126,10 +131,10 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
           const mappedUsers = usersData.map(KueskiUserMapper.toDomain);
           setAllUsers(mappedUsers);
 
-          // Revisa sesión
-          const session = await browser.storage.local.get('kueski_session');
-          if (session.kueski_session) {
-            const user = mappedUsers.find(u => u.id === session.kueski_session);
+          // Revisa sesión Supabase
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.email) {
+            const user = mappedUsers.find(u => u.email === session.user.email);
             if (user) {
               setKueskiUser(user);
               setIsLoggedIn(true);
@@ -161,19 +166,32 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     getActiveTabProduct();
   }, []);
 
-  const handleLogin = async (userId: string) => {
-    const user = allUsers.find(u => u.id === userId);
-    if (user) {
-      await browser.storage.local.set({ kueski_session: userId });
-      setKueskiUser(user);
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const { data, error } = authMode === 'login'
+        ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+        : await supabase.auth.signUp({ email: authEmail, password: authPassword });
+
+      if (error) { setAuthError(error.message); return; }
+      if (!data.session) { setAuthError('Revisa tu correo para confirmar la cuenta.'); return; }
+
+      const user = allUsers.find(u => u.email === authEmail);
+      if (user) setKueskiUser(user);
       setIsLoggedIn(true);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await browser.storage.local.remove('kueski_session');
+    await supabase.auth.signOut();
     setKueskiUser(null);
     setIsLoggedIn(false);
+    setAuthEmail('');
+    setAuthPassword('');
     setActiveTab('panel');
     setPayFlow('options');
   };
@@ -220,34 +238,51 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               <Zap className="h-6 w-6 text-white" fill="currentColor" />
             </div>
           </div>
-          <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Bienvenido a Kueski</h2>
-          <p className="text-sm text-gray-500 text-center mb-6">Selecciona un usuario de prueba para continuar</p>
+          <h2 className="text-xl font-bold text-center text-gray-900 mb-2">
+            {authMode === 'login' ? 'Inicia sesión' : 'Crea tu cuenta'}
+          </h2>
+          <p className="text-sm text-gray-500 text-center mb-6">
+            {authMode === 'login' ? 'Accede a tu crédito Kueski' : 'Regístrate para continuar'}
+          </p>
 
-          {loadingData ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-[#0075FF]" />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {allUsers.map(user => (
-                <div key={user.id}
-                  className="p-3 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-[#0075FF] hover:bg-blue-50 transition-all text-left w-full shadow-sm"
-                  onClick={() => handleLogin(user.id)}
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-sm text-gray-900">{user.fullName}</span>
-                    <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      {user.maxInstallments} qnas
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>Límite:</span>
-                    <span className="font-bold text-gray-700">{formatCurrency(user.creditLimit)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <form onSubmit={handleAuth} className="space-y-3">
+            <input
+              type="email"
+              required
+              placeholder="correo@ejemplo.com"
+              value={authEmail}
+              onChange={e => setAuthEmail(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#0075FF]"
+            />
+            <input
+              type="password"
+              required
+              minLength={6}
+              placeholder="Contraseña"
+              value={authPassword}
+              onChange={e => setAuthPassword(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#0075FF]"
+            />
+
+            {authError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                {authError}
+              </p>
+            )}
+
+            <Button type="submit" disabled={authLoading}
+              className="w-full bg-[#0075FF] hover:bg-[#0050CC] text-white font-bold h-10 text-sm rounded-lg">
+              {authLoading
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : (authMode === 'login' ? 'Entrar' : 'Registrarme')}
+            </Button>
+
+            <button type="button"
+              onClick={() => { setAuthMode(m => m === 'login' ? 'signup' : 'login'); setAuthError(null); }}
+              className="w-full text-xs text-[#0075FF] hover:underline">
+              {authMode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+            </button>
+          </form>
         </div>
       </div>
     );
