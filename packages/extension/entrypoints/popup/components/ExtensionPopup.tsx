@@ -207,7 +207,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
 
   const handlePay      = () => setPayFlow('form');
   const handleVerify   = () => { setPayFlow('loading'); setTimeout(() => setPayFlow('success'), 2500); };
-  const handleRedirect = () => window.open('https://www.kueski.com/', '_blank');
+  const handleRedirect = () => window.open('https://www.kueski.com', '_blank');
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'panel',   label: 'Panel',   icon: <Wallet className="h-3.5 w-3.5" /> },
@@ -366,19 +366,19 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
             <Card className="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 text-white border-0">
               <p className="text-xs text-gray-400 mb-1">Crédito Disponible</p>
               <p className="text-3xl font-extrabold mb-3">
-                {kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : '—'}
+                {kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : '$ 1923'}
               </p>
               <div className="grid grid-cols-2 gap-3 border-t border-gray-700 pt-3">
                 <div>
                   <p className="text-xs text-gray-400">Usado</p>
                   <p className="font-bold text-[#00E59B]">
-                    {kueskiUser ? formatCurrency(kueskiUser.creditUsed) : '—'}
+                    {kueskiUser ? formatCurrency(kueskiUser.creditUsed) : '$ 782'}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-400">Límite</p>
                   <p className="font-bold">
-                    {kueskiUser ? formatCurrency(kueskiUser.creditLimit) : '—'}
+                    {kueskiUser ? formatCurrency(kueskiUser.creditLimit) : '$ 7433'}
                   </p>
                 </div>
               </div>
