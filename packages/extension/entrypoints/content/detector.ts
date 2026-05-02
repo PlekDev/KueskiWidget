@@ -37,10 +37,6 @@ export const getActiveMerchant = async (hostname: string): Promise<Merchant | nu
 // Usados para mostrar la notificación "Esta tienda acepta Kueski Pay".
 const KUESKI_PAY_PARTNERS = [
   'amazon.com.mx',
-  'liverpool.com.mx',
-  'elektra.com.mx',
-  'officedepot.com.mx',
-  'mx.puma.com',
   'mercadolibre.com.mx',
   'walmart.com.mx',
   'palacio.com.mx',
