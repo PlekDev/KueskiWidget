@@ -324,7 +324,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                   <div className="text-xs text-white/70">Total producto</div>
                   <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
                 </div>
-                <Badge className="bg-[#00E59B] text-gray-900 hover:bg-[#00E59B] font-bold border-none px-2 py-0.5 text-xs">
+                <Badge className="bg-[#54C08B] text-white hover:bg-[#54C08B] font-bold border-none px-2 py-0.5 text-xs">
                   0% interés
                 </Badge>
               </div>
@@ -371,7 +371,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               <div className="grid grid-cols-2 gap-3 border-t border-gray-700 pt-3">
                 <div>
                   <p className="text-xs text-gray-400">Usado</p>
-                  <p className="font-bold text-[#00E59B]">
+                  <p className="font-bold text-[#54C08B]">
                     {kueskiUser ? formatCurrency(kueskiUser.creditUsed) : '$ 782'}
                   </p>
                 </div>
@@ -473,7 +473,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-extrabold text-[#0075FF]">{formatCurrency(opt.amount)}</div>
-                        <div className="text-[10px] text-green-600 font-bold">0% interés</div>
+                        <div className="text-[10px] text-[#54C08B] font-bold">0% interés</div>
                       </div>
                     </div>
                     {selectedPeriods === opt.periods && (
@@ -568,7 +568,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
             {payFlow === 'success' && (
               <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
                 <div className="bg-green-100 p-4 rounded-full">
-                  <CheckCircle className="h-12 w-12 text-[#00E59B]" />
+                  <CheckCircle className="h-12 w-12 text-[#54C08B]" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-lg text-gray-900">¡Crédito Aprobado!</h3>
@@ -580,7 +580,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <div className="flex justify-between"><span>Monto total</span><strong>{formatCurrency(price)}</strong></div>
                     <div className="flex justify-between"><span>Quincenas</span><strong>{selectedPeriods}</strong></div>
                     <div className="flex justify-between"><span>Pago quincenal</span><strong className="text-[#0075FF]">{formatCurrency(selectedOption.amount)}</strong></div>
-                    <div className="flex justify-between"><span>Intereses</span><strong className="text-green-600">$0.00</strong></div>
+                    <div className="flex justify-between"><span>Intereses</span><strong className="text-[#54C08B]">$0.00</strong></div>
                     <div className="flex justify-between"><span>Primer cobro</span><strong>5 de Mayo, 2026</strong></div>
                   </div>
                 </div>
@@ -662,7 +662,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                       </div>
                       <div>
                         <p className="text-gray-400 text-[10px]">Cashback</p>
-                        <p className="font-semibold text-[#00b87a]">{item.cashback}</p>
+                        <p className="font-semibold text-[#54C08B]">{item.cashback}</p>
                       </div>
                     </div>
                   </Card>
@@ -738,7 +738,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               <p className="text-xs text-gray-500">Paga en tiendas no afiliadas usando esta tarjeta virtual ligada a tu crédito Kueski.</p>
             </div>
 
-            <div className="bg-gradient-to-br from-[#002B7A] to-[#0050CC] rounded-2xl p-5 text-white shadow-lg relative overflow-hidden h-[180px] flex flex-col justify-between border border-[#0075FF]/30">
+            <div className="bg-gradient-to-br from-[#001733] to-[#0075FF] rounded-2xl p-5 text-white shadow-lg relative overflow-hidden h-[180px] flex flex-col justify-between border border-[#0075FF]/30">
               {/* Card visual elements */}
               <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
               <div className="absolute -left-10 -bottom-10 w-32 h-32 bg-[#00E59B]/20 rounded-full blur-2xl"></div>
