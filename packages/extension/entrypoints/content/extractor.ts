@@ -1,4 +1,4 @@
-import type { ExtractedData, PriceExtractor } from './types';
+import type { CartData, CartItem, ExtractedData, PriceExtractor } from './types';
 
 // Selectores genéricos de precio con descuento/oferta
 const GENERIC_DISCOUNT_SELECTORS = [
@@ -271,4 +271,76 @@ export const extractPriceAndProduct = (): ExtractedData | null => {
   }
 
   return null;
+};
+
+// ─── CART DETECTION ──────────────────────────────────────────────────────────
+
+const CART_URL_PATTERNS = ['/cart', '/carrito', '/basket', '/bolsa', '/shopping-bag', '/carro', '/mi-carrito', '/bag'];
+
+export const isCartPage = (): boolean => {
+  const url = location.pathname.toLowerCase();
+  return CART_URL_PATTERNS.some(p => url.includes(p));
+};
+
+const CART_TOTAL_SELECTORS = [
+  '[class*="cart-total" i]',
+  '[class*="order-total" i]',
+  '[class*="total-price" i]',
+  '[class*="grand-total" i]',
+  '[class*="subtotal" i]',
+  '[id*="cart-total" i]',
+  '[id*="orderTotal" i]',
+  '[class*="resumen-total" i]',
+  '[class*="total-order" i]',
+  '[data-testid*="total" i]',
+];
+
+const CART_ITEM_SELECTORS = [
+  '[class*="cart-item" i]',
+  '[class*="bag-item" i]',
+  '[class*="basket-item" i]',
+  '[class*="cart-product" i]',
+  '[class*="item-row" i]',
+  'tr[class*="item" i]',
+  '[class*="producto-carrito" i]',
+  '[class*="line-item" i]',
+];
+
+export const extractCart = (): CartData | null => {
+  let total: number | null = null;
+  for (const sel of CART_TOTAL_SELECTORS) {
+    try {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
+      if (prices.length > 0) { total = Math.max(...prices); break; }
+    } catch { /* selector inválido */ }
+  }
+
+  const items: CartItem[] = [];
+  for (const sel of CART_ITEM_SELECTORS) {
+    try {
+      const els = document.querySelectorAll(sel);
+      if (els.length === 0) continue;
+      els.forEach(el => {
+        const nameEl = el.querySelector('a, [class*="name" i], [class*="title" i], [class*="nombre" i]');
+        const name = nameEl?.textContent?.trim() ?? '';
+        const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
+        const price = prices.length > 0 ? Math.min(...prices) : 0;
+        const qtyEl = el.querySelector('[class*="quantity" i], [class*="cantidad" i], input[type="number"]') as HTMLInputElement | null;
+        const quantity = qtyEl ? (parseInt(qtyEl.value || qtyEl.textContent || '1', 10) || 1) : 1;
+        if (name && price > 0) items.push({ name: name.slice(0, 80), price, quantity });
+      });
+      if (items.length > 0) break;
+    } catch { /* selector inválido */ }
+  }
+
+  if (!total && items.length > 0) total = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  if (!total) return null;
+
+  const cartName = items.length > 0
+    ? `Carrito (${items.length} producto${items.length > 1 ? 's' : ''})`
+    : 'Mi carrito de compras';
+
+  return { isCart: true, items, total, currency: 'MXN', productName: cartName, price: total };
 };

@@ -11,7 +11,7 @@ export default defineConfig({
     
     // Necesario para que el content script pueda llamar a la REST API de Supabase
     // desde páginas cross-origin (p.ej. liverpool.com.mx).
-    host_permissions: ['https://*.supabase.co/*'],
+    host_permissions: ['https://*.supabase.co/*', 'http://localhost/*', 'http://127.0.0.1/*'],
   },
   vite: ({ mode }) => {
     // Carga el .env desde la raíz del monorepo (2 niveles arriba de packages/extension)

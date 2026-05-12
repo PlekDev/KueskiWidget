@@ -20,6 +20,11 @@ type PayFlow = 'options' | 'form' | 'loading' | 'success';
 const formatCurrency = (amount: number) =>
   amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
+const genCvv = () => {
+  const slot = Math.floor(Date.now() / 30_000);
+  return String((slot * 7919 + 1337) % 900 + 100);
+};
+
 // ─── Price comparison (generada desde merchants de Supabase) ─────────────────
 interface PriceResult {
   store: string;
@@ -88,9 +93,19 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  // ─── Producto detectado de la página activa (null = no estamos en producto) ─
-  const [product, setProduct] = useState<{ name: string; price: number } | null>(null);
+  // ─── Producto / carrito detectado de la página activa ───────────────────────
+  const [product, setProduct] = useState<{ name: string; price: number; isCart?: boolean; cartItems?: { name: string; quantity: number; price: number }[] } | null>(null);
   const price = product?.price ?? 0;
+
+  const [cvv, setCvv] = useState(genCvv);
+  const [cvvTick, setCvvTick] = useState(() => 30 - (Math.floor(Date.now() / 1000) % 30));
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCvv(genCvv());
+      setCvvTick(30 - (Math.floor(Date.now() / 1000) % 30));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const kueskiOptions = [
     { periods: 4,  amount: price / 4  },
@@ -142,14 +157,18 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     };
     fetchAll();
 
-    // Obtener producto real si estamos en una página soportada
     const getActiveTabProduct = async () => {
       try {
         const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
           const response = await browser.tabs.sendMessage(tab.id, { action: 'GET_PRODUCT_INFO' });
           if (response && response.productName && response.price) {
-            setProduct({ name: response.productName, price: response.price });
+            setProduct({
+              name: response.productName,
+              price: response.price,
+              isCart: response.isCart ?? false,
+              cartItems: response.items ?? [],
+            });
           }
         }
       } catch (err) {
@@ -321,7 +340,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                   <span className="text-white/80 text-xs ml-1">/ quincena</span>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-white/70">Total producto</div>
+                  <div className="text-xs text-white/70">{product?.isCart ? 'Total carrito' : 'Total producto'}</div>
                   <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
                 </div>
                 <Badge className="bg-[#54C08B] text-white hover:bg-[#54C08B] font-bold border-none px-2 py-0.5 text-xs">
@@ -441,15 +460,42 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
           <>
             {payFlow === 'options' && (
               <div className="flex flex-col gap-3">
-                <div className="bg-blue-50 rounded-xl p-3 flex items-center gap-3 border border-blue-100">
-                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 shrink-0">
-                    <ShoppingCart className="h-5 w-5 text-blue-500" />
+                {/* Producto individual */}
+                {!product?.isCart && (
+                  <div className="bg-blue-50 rounded-xl p-3 flex items-center gap-3 border border-blue-100">
+                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 shrink-0">
+                      <ShoppingCart className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-gray-900 truncate">{product?.name}</p>
+                      <p className="text-xs text-gray-500">Precio: <strong className="text-[#0075FF]">{formatCurrency(price)}</strong></p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-900 truncate">{product?.name}</p>
-                    <p className="text-xs text-gray-500">Precio: <strong className="text-[#0075FF]">{formatCurrency(price)}</strong></p>
+                )}
+
+                {/* Carrito de compras */}
+                {product?.isCart && (
+                  <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <ShoppingCart className="h-4 w-4 text-[#0075FF]" />
+                      <span className="text-xs font-bold text-gray-900">{product.name}</span>
+                    </div>
+                    {(product.cartItems ?? []).length > 0 && (
+                      <div className="space-y-1 mb-2 max-h-[80px] overflow-y-auto styled-scrollbar">
+                        {(product.cartItems ?? []).map((item, i) => (
+                          <div key={i} className="flex justify-between text-[10px] text-gray-600">
+                            <span className="truncate flex-1 mr-2">{item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}</span>
+                            <span className="font-semibold shrink-0">{formatCurrency(item.price * item.quantity)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs border-t border-blue-200 pt-1.5">
+                      <span className="text-gray-500">Total carrito</span>
+                      <strong className="text-[#0075FF]">{formatCurrency(price)}</strong>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <p className="text-xs font-bold text-gray-700">Elige tu plan de pago:</p>
 
@@ -771,9 +817,12 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                       <div className="text-[8px] text-white/60 uppercase">Vence</div>
                       <div className="font-mono text-xs">12/28</div>
                     </div>
-                    <div className="cursor-pointer hover:text-yellow-100" onClick={() => handleCopy('456')} title="Copiar CVV">
+                    <div className="cursor-pointer hover:text-yellow-100" onClick={() => handleCopy(cvv)} title="Copiar CVV">
                       <div className="text-[8px] text-white/60 uppercase">CVV</div>
-                      <div className="font-mono text-xs">456</div>
+                      <div className="font-mono text-xs flex items-center gap-1">
+                        {cvv}
+                        <span className="text-[7px] text-white/40">{cvvTick}s</span>
+                      </div>
                     </div>
                   </div>
                 </div>

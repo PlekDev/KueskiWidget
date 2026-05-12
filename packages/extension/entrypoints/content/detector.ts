@@ -3,9 +3,10 @@ import { MerchantMapper } from 'shared/mappers';
 import type { Merchant } from 'shared/models';
 
 const ALLOWED_TLDS = ['.com', '.mx'];
+const LOCAL_HOSTS = ['localhost', '127.0.0.1'];
 
 export const hasAllowedTld = (host: string): boolean =>
-  ALLOWED_TLDS.some(tld => host.endsWith(tld));
+  LOCAL_HOSTS.includes(host) || ALLOWED_TLDS.some(tld => host.endsWith(tld));
 
 export const isBlacklisted = async (hostname: string): Promise<boolean> => {
   const { data } = await supabase.from('blacklist').select('domain');

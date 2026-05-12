@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlekDev Tech Store</title>
+  <style>
+    :root {
+      --dark:   #050A20;
+      --indigo: #1700AC;
+      --white:  #FAF9F6;
+      --accent: #38B6FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--dark); color: var(--white); font-family: 'Montserrat', system-ui, sans-serif; min-height: 100vh; }
+
+    /* NAV */
+    nav { background: rgba(5,10,32,0.95); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(56,182,255,0.15); padding: 0 24px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .nav-logo { font-size: 1.1rem; font-weight: 800; letter-spacing: 1px; color: var(--white); display: flex; align-items: center; gap: 8px; }
+    .nav-logo span { color: var(--accent); }
+    .nav-cart-btn { background: var(--indigo); color: var(--white); border: none; padding: 8px 18px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s; }
+    .nav-cart-btn:hover { background: #2800E0; }
+    .cart-count { background: var(--accent); color: var(--dark); border-radius: 50%; width: 18px; height: 18px; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+
+    /* HERO */
+    .hero { padding: 48px 24px 32px; text-align: center; }
+    .hero h1 { font-size: 2rem; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+    .hero h1 span { color: var(--accent); }
+    .hero p { color: rgba(250,249,246,0.55); font-size: 0.85rem; margin-top: 8px; }
+
+    /* PRODUCTS GRID */
+    .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; padding: 16px 24px 48px; max-width: 1000px; margin: 0 auto; }
+    .product-card { background: rgba(23,0,172,0.12); border: 1px solid rgba(56,182,255,0.18); border-radius: 16px; overflow: hidden; transition: transform 0.2s, border-color 0.2s; cursor: pointer; }
+    .product-card:hover { transform: translateY(-4px); border-color: var(--accent); }
+    .product-img { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 3.5rem; background: rgba(23,0,172,0.2); }
+    .product-info { padding: 14px; }
+    .product-name { font-size: 0.8rem; font-weight: 700; margin-bottom: 4px; line-height: 1.3; }
+    .product-price { font-size: 1.1rem; font-weight: 900; color: var(--accent); }
+    .product-sub { font-size: 0.68rem; color: rgba(250,249,246,0.45); margin-top: 2px; }
+    .add-btn { margin-top: 10px; width: 100%; background: var(--indigo); color: var(--white); border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: background 0.2s; }
+    .add-btn:hover { background: #2800E0; }
+    .add-btn.added { background: #166534; }
+
+    /* PRODUCT DETAIL (modal) */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(5,10,32,0.85); z-index: 200; align-items: center; justify-content: center; }
+    .overlay.open { display: flex; }
+    .detail-card { background: #0C1233; border: 1px solid rgba(56,182,255,0.25); border-radius: 20px; padding: 32px; max-width: 480px; width: 90%; position: relative; }
+    .detail-close { position: absolute; top: 16px; right: 16px; background: none; border: none; color: var(--white); font-size: 1.4rem; cursor: pointer; opacity: 0.6; }
+    .detail-emoji { font-size: 5rem; text-align: center; margin-bottom: 16px; }
+    .detail-name { font-size: 1.1rem; font-weight: 800; margin-bottom: 6px; }
+    .detail-price { font-size: 2rem; font-weight: 900; color: var(--accent); }
+    .detail-desc { font-size: 0.8rem; color: rgba(250,249,246,0.6); margin: 10px 0 20px; line-height: 1.5; }
+    .detail-add { width: 100%; background: var(--indigo); color: var(--white); border: none; padding: 12px; border-radius: 12px; font-size: 0.9rem; font-weight: 800; cursor: pointer; transition: background 0.2s; }
+    .detail-add:hover { background: #2800E0; }
+    .kueski-badge { margin-top: 12px; background: rgba(0,117,255,0.12); border: 1px solid rgba(0,117,255,0.3); border-radius: 10px; padding: 8px 12px; font-size: 0.72rem; color: #93C5FD; text-align: center; }
+
+    /* CART PAGE */
+    #cart-page { display: none; padding: 24px; max-width: 680px; margin: 0 auto; }
+    #cart-page.open { display: block; }
+    #products-page.hidden { display: none; }
+    .cart-title { font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
+    .cart-item { display: flex; align-items: center; gap: 16px; background: rgba(23,0,172,0.1); border: 1px solid rgba(56,182,255,0.15); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+    .cart-item-emoji { font-size: 2.2rem; flex-shrink: 0; }
+    .cart-item-info { flex: 1; }
+    .cart-item-name { font-size: 0.82rem; font-weight: 700; }
+    .cart-item-qty { font-size: 0.72rem; color: rgba(250,249,246,0.5); margin-top: 3px; }
+    .cart-item-price { font-size: 1rem; font-weight: 900; color: var(--accent); }
+    .cart-remove { background: none; border: none; color: rgba(250,249,246,0.3); font-size: 1.1rem; cursor: pointer; padding: 4px; }
+    .cart-remove:hover { color: #F87171; }
+    .cart-summary { background: rgba(23,0,172,0.15); border: 1px solid rgba(56,182,255,0.2); border-radius: 14px; padding: 18px; margin-top: 16px; }
+    .cart-total { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .cart-total-label { font-size: 0.85rem; color: rgba(250,249,246,0.6); }
+    .cart-total-amount { font-size: 1.6rem; font-weight: 900; color: var(--accent); }
+    .checkout-btn { width: 100%; background: var(--indigo); color: var(--white); border: none; padding: 14px; border-radius: 12px; font-size: 0.9rem; font-weight: 800; cursor: pointer; transition: background 0.2s; }
+    .checkout-btn:hover { background: #2800E0; }
+    .empty-cart { text-align: center; padding: 60px 20px; color: rgba(250,249,246,0.4); }
+    .empty-cart span { font-size: 3rem; display: block; margin-bottom: 12px; }
+    .back-btn { background: none; border: 1px solid rgba(56,182,255,0.3); color: var(--accent); padding: 8px 16px; border-radius: 8px; font-size: 0.78rem; cursor: pointer; margin-bottom: 20px; }
+    .back-btn:hover { border-color: var(--accent); }
+
+    /* CHECKOUT SUCCESS */
+    #checkout-page { display: none; padding: 48px 24px; text-align: center; }
+    #checkout-page.open { display: block; }
+    .success-icon { font-size: 4rem; margin-bottom: 16px; }
+    .success-title { font-size: 1.5rem; font-weight: 900; color: #4ADE80; }
+    .success-sub { font-size: 0.85rem; color: rgba(250,249,246,0.55); margin-top: 8px; }
+    .restart-btn { margin-top: 28px; background: var(--indigo); color: var(--white); border: none; padding: 12px 28px; border-radius: 10px; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+
+    /* TOAST */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--indigo); color: var(--white); padding: 10px 18px; border-radius: 10px; font-size: 0.8rem; font-weight: 700; transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 999; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* KUESKI HINT */
+    .kueski-hint { text-align: center; padding: 12px; font-size: 0.72rem; color: rgba(250,249,246,0.3); border-top: 1px solid rgba(56,182,255,0.08); margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">P<span>D</span> Tech Store</div>
+  <button class="nav-cart-btn" onclick="showCart()">
+    🛒 Carrito
+    <span class="cart-count" id="cart-count">0</span>
+  </button>
+</nav>
+
+<!-- PRODUCTS PAGE -->
+<div id="products-page">
+  <div class="hero">
+    <h1>Tech Store <span>PlekDev</span></h1>
+    <p>Productos tecnológicos · Demo local para Kueski Widget</p>
+  </div>
+  <div class="products-grid" id="products-grid"></div>
+  <div class="kueski-hint">💡 Abre el Kueski Widget en cualquier producto o en el carrito para ver opciones de pago</div>
+</div>
+
+<!-- CART PAGE -->
+<div id="cart-page">
+  <button class="back-btn" onclick="showProducts()">← Seguir comprando</button>
+  <div class="cart-title">🛒 Mi Carrito</div>
+  <div id="cart-items-list"></div>
+  <div class="cart-summary" id="cart-summary" style="display:none">
+    <div class="cart-total">
+      <span class="cart-total-label">Total</span>
+      <span class="cart-total-amount cart-total" id="cart-total-display"></span>
+    </div>
+    <button class="checkout-btn" onclick="doCheckout()">Finalizar compra</button>
+  </div>
+</div>
+
+<!-- CHECKOUT SUCCESS -->
+<div id="checkout-page">
+  <div class="success-icon">✅</div>
+  <div class="success-title">¡Compra realizada!</div>
+  <div class="success-sub">Tu pedido fue procesado correctamente (simulación local).</div>
+  <button class="restart-btn" onclick="restartStore()">Volver a la tienda</button>
+</div>
+
+<!-- PRODUCT DETAIL MODAL -->
+<div class="overlay" id="detail-overlay">
+  <div class="detail-card">
+    <button class="detail-close" onclick="closeDetail()">✕</button>
+    <div class="detail-emoji" id="detail-emoji"></div>
+    <div class="detail-name" id="detail-name"></div>
+    <div class="detail-price" id="detail-price"></div>
+    <div class="detail-desc" id="detail-desc"></div>
+    <button class="detail-add" id="detail-add-btn" onclick="addCurrentToCart()">Agregar al carrito</button>
+    <div class="kueski-badge">⚡ Paga en quincenas con Kueski Pay · 0% interés</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- JSON-LD se inyecta dinámicamente por JS para que el content script lo detecte -->
+<script id="product-jsonld" type="application/ld+json"></script>
+
+<script>
+const PRODUCTS = [
+  { id: 1, name: 'Laptop UltraBook Pro 15"', emoji: '💻', price: 18999, desc: 'Procesador i7 de 12a generación, 16 GB RAM, SSD 512 GB, pantalla IPS 1080p. Ideal para desarrollo y diseño.', category: 'Computadoras' },
+  { id: 2, name: 'Monitor Gaming 27" QHD', emoji: '🖥️', price: 7499, desc: 'Panel IPS 2560×1440 a 165 Hz, tiempo de respuesta 1 ms, compatible con G-Sync y FreeSync.', category: 'Monitores' },
+  { id: 3, name: 'Teclado Mecánico RGB TKL', emoji: '⌨️', price: 1299, desc: 'Switches táctiles marrones, retroiluminación RGB por tecla, layout TKL compacto, cable USB-C.', category: 'Periféricos' },
+  { id: 4, name: 'Mouse Inalámbrico Pro', emoji: '🖱️', price: 899, desc: 'Sensor de 25 600 DPI, batería de 70 horas, receptor USB de 2.4 GHz, diseño ergonómico.', category: 'Periféricos' },
+  { id: 5, name: 'Audifonos Noise Cancelling', emoji: '🎧', price: 3499, desc: 'Cancelación de ruido activa (ANC), 30 horas de batería, Bluetooth 5.3, plegables y ligeros.', category: 'Audio' },
+  { id: 6, name: 'Tablet 11" 256 GB', emoji: '📱', price: 9299, desc: 'Pantalla OLED 120 Hz, chip M2, 8 GB RAM, compatible con lápiz óptico y teclado magnético.', category: 'Tablets' },
+  { id: 7, name: 'SSD Externo 2 TB USB-C', emoji: '💾', price: 1799, desc: 'Velocidad de lectura hasta 1050 MB/s, resistente a golpes y agua, carcasa de aluminio.', category: 'Almacenamiento' },
+  { id: 8, name: 'Webcam 4K 60fps', emoji: '📷', price: 2199, desc: 'Resolución 3840×2160, autoenfoque IA, corrección de iluminación automática, micrófono estéreo integrado.', category: 'Periféricos' },
+];
+
+let cart = [];
+let currentProduct = null;
+
+const fmt = n => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+
+// ── Render product grid ──────────────────────────────────────────────────────
+function renderGrid() {
+  const grid = document.getElementById('products-grid');
+  grid.innerHTML = PRODUCTS.map(p => `
+    <div class="product-card" onclick="openDetail(${p.id})">
+      <div class="product-img">${p.emoji}</div>
+      <div class="product-info">
+        <div class="product-name">${p.name}</div>
+        <div class="product-price">${fmt(p.price)}</div>
+        <div class="product-sub">${p.category} · Kueski Pay</div>
+        <button class="add-btn ${cart.find(c=>c.id===p.id)?'added':''}"
+          onclick="event.stopPropagation(); quickAdd(${p.id})">
+          ${cart.find(c=>c.id===p.id) ? '✓ En carrito' : '+ Agregar'}
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Product detail modal ─────────────────────────────────────────────────────
+function openDetail(id) {
+  const p = PRODUCTS.find(x => x.id === id);
+  if (!p) return;
+  currentProduct = p;
+  document.getElementById('detail-emoji').textContent = p.emoji;
+  document.getElementById('detail-name').textContent = p.name;
+  document.getElementById('detail-price').textContent = fmt(p.price);
+  document.getElementById('detail-desc').textContent = p.desc;
+  // Inyectar JSON-LD para que el content script de Kueski lo detecte
+  document.getElementById('product-jsonld').textContent = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: p.name,
+    description: p.desc,
+    offers: { '@type': 'Offer', price: p.price, priceCurrency: 'MXN', availability: 'https://schema.org/InStock' }
+  });
+  // og:title para el nombre
+  let ogTitle = document.querySelector('meta[property="og:title"]');
+  if (!ogTitle) { ogTitle = document.createElement('meta'); ogTitle.setAttribute('property','og:title'); document.head.appendChild(ogTitle); }
+  ogTitle.setAttribute('content', p.name);
+  document.getElementById('detail-overlay').classList.add('open');
+}
+function closeDetail() {
+  document.getElementById('detail-overlay').classList.remove('open');
+  document.getElementById('product-jsonld').textContent = '';
+  currentProduct = null;
+}
+function addCurrentToCart() {
+  if (currentProduct) { addToCart(currentProduct); closeDetail(); }
+}
+
+// ── Cart logic ───────────────────────────────────────────────────────────────
+function addToCart(p) {
+  const existing = cart.find(c => c.id === p.id);
+  if (existing) existing.qty++;
+  else cart.push({ ...p, qty: 1 });
+  updateCartCount();
+  renderGrid();
+  showToast(`${p.emoji} ${p.name.slice(0,28)}… agregado`);
+}
+function quickAdd(id) { addToCart(PRODUCTS.find(x => x.id === id)); }
+function removeFromCart(id) {
+  cart = cart.filter(c => c.id !== id);
+  updateCartCount();
+  renderCartPage();
+  renderGrid();
+}
+function updateCartCount() {
+  const total = cart.reduce((s, c) => s + c.qty, 0);
+  document.getElementById('cart-count').textContent = total;
+}
+function cartTotal() { return cart.reduce((s, c) => s + c.price * c.qty, 0); }
+
+// ── Cart page ────────────────────────────────────────────────────────────────
+function renderCartPage() {
+  const list = document.getElementById('cart-items-list');
+  const summary = document.getElementById('cart-summary');
+  if (cart.length === 0) {
+    list.innerHTML = '<div class="empty-cart"><span>🛒</span>Tu carrito está vacío</div>';
+    summary.style.display = 'none';
+    return;
+  }
+  list.innerHTML = cart.map(c => `
+    <div class="cart-item" data-item-id="${c.id}">
+      <div class="cart-item-emoji">${c.emoji}</div>
+      <div class="cart-item-info">
+        <div class="cart-item-name">${c.name}</div>
+        <div class="cart-item-qty">Cantidad: ${c.qty}</div>
+      </div>
+      <div class="cart-item-price">${fmt(c.price * c.qty)}</div>
+      <button class="cart-remove" onclick="removeFromCart(${c.id})" title="Eliminar">✕</button>
+    </div>
+  `).join('');
+  document.getElementById('cart-total-display').textContent = fmt(cartTotal());
+  summary.style.display = 'block';
+}
+
+function showCart() {
+  document.getElementById('products-page').classList.add('hidden');
+  document.getElementById('cart-page').classList.add('open');
+  document.getElementById('checkout-page').classList.remove('open');
+  renderCartPage();
+  // Inyectar meta tag de carrito para que el content script lo detecte
+  injectCartMeta();
+}
+function showProducts() {
+  document.getElementById('products-page').classList.remove('hidden');
+  document.getElementById('cart-page').classList.remove('open');
+  removeCartMeta();
+}
+
+// ── Meta tags para que el content script detecte el carrito ─────────────────
+function injectCartMeta() {
+  removeCartMeta();
+  if (cart.length === 0) return;
+  // Inyectar JSON-LD del carrito como ShoppingCart
+  const total = cartTotal();
+  const script = document.createElement('script');
+  script.type = 'application/ld+json';
+  script.id = 'cart-jsonld';
+  script.textContent = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: `Carrito (${cart.length} producto${cart.length > 1 ? 's' : ''})`,
+    offers: { '@type': 'Offer', price: total, priceCurrency: 'MXN' }
+  });
+  document.head.appendChild(script);
+  // Forzar pathname a /carrito para que isCartPage() lo detecte
+  history.replaceState(null, '', '/carrito');
+}
+function removeCartMeta() {
+  document.getElementById('cart-jsonld')?.remove();
+  history.replaceState(null, '', '/');
+}
+
+// ── Checkout ──────────────────────────────────────────────────────────────────
+function doCheckout() {
+  document.getElementById('cart-page').classList.remove('open');
+  document.getElementById('checkout-page').classList.add('open');
+  cart = [];
+  updateCartCount();
+  removeCartMeta();
+}
+function restartStore() {
+  document.getElementById('checkout-page').classList.remove('open');
+  document.getElementById('products-page').classList.remove('hidden');
+  renderGrid();
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+renderGrid();
+</script>
+</body>
+</html>

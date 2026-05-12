@@ -1,5 +1,5 @@
 import { getActiveMerchant, hasAllowedTld, isBlacklisted, isKueskiPayPartner } from './detector';
-import { extractPriceAndProduct } from './extractor';
+import { extractCart, extractPriceAndProduct, isCartPage } from './extractor';
 import { renderWidget } from './widget';
 
 export default defineContentScript({
@@ -27,8 +27,8 @@ export default defineContentScript({
       //    No bloqueamos si no está registrado; el widget funciona igual.
       const merchant = await getActiveMerchant(hostname);
 
-      // 4. Extraer precio y producto de la página (funciona en cualquier tienda)
-      const data = extractPriceAndProduct();
+      // 4. Extraer precio/producto o carrito según el contexto de la página
+      const data = isCartPage() ? extractCart() : extractPriceAndProduct();
       if (!data || data.price < 100) return;
 
       // 5. Determinar si es un partner oficial de Kueski Pay
@@ -73,12 +73,11 @@ export default defineContentScript({
     // retorna, por lo que sendResponse llegaría tarde. Retornar `true` mantiene el canal abierto.
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.action === 'GET_PRODUCT_INFO') {
-        const hostname = location.hostname.toLowerCase();
-        getActiveMerchant(hostname)
-          .then(merchant => extractPriceAndProduct())
-          .then(productInfo => sendResponse(productInfo ?? null))
+        const onCart = isCartPage();
+        Promise.resolve(onCart ? extractCart() : extractPriceAndProduct())
+          .then(info => sendResponse(info ?? null))
           .catch(() => sendResponse(null));
-        return true; // mantiene el canal abierto para la respuesta async
+        return true;
       }
     });
   },
