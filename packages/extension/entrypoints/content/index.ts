@@ -74,8 +74,13 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.action === 'GET_PRODUCT_INFO') {
         const onCart = isCartPage();
+        const hostname = location.hostname.toLowerCase();
+        const isPartner = isKueskiPayPartner(hostname);
         Promise.resolve(onCart ? extractCart() : extractPriceAndProduct())
-          .then(info => sendResponse(info ?? null))
+          .then(info => {
+            if (!info) { sendResponse(null); return; }
+            sendResponse({ ...info, isPartner });
+          })
           .catch(() => sendResponse(null));
         return true;
       }

@@ -1,5 +1,5 @@
 import type { Merchant } from 'shared/models';
-import type { ExtractedData } from './types';
+import type { CartData, ExtractedData } from './types';
 
 const fmt = (n: number) =>
   '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -130,6 +130,33 @@ const STYLES = `
   .cta-btn:hover { opacity: 0.9; }
   .disclaimer { font-size: 10px; color: #999; text-align: center; padding: 8px 12px; border-top: 1px solid #f0f0f0; }
 
+  .cart-items {
+    border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden;
+    margin-bottom: 4px;
+  }
+  .cart-items-header {
+    font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 7px 12px; background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .cart-item-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-bottom: 1px solid #f0f0f0; font-family: system-ui, sans-serif;
+  }
+  .cart-item-row:last-child { border-bottom: none; }
+  .cart-item-qty {
+    flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px;
+    background: #e8f0ff; color: #0050CC; font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cart-item-name { flex: 1; font-size: 12px; color: #222; line-height: 1.3; }
+  .cart-item-price { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #0075FF; }
+  .cart-divider {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-top: 2px solid #e5e7eb;
+    font-size: 13px; font-weight: 800; color: #111;
+  }
+
   .close-btn {
     position: absolute; top: 10px; right: 10px;
     background: rgba(255,255,255,0.2); border: none; border-radius: 50%;
@@ -175,8 +202,11 @@ const buildOption = (o: Installment, price: number, featured: boolean): HTMLElem
 
 // merchant puede ser null en tiendas no registradas en Supabase (modo genérico).
 // isPartner indica que hay convenio oficial con Kueski Pay.
-export const renderWidget = (merchant: Merchant | null, data: ExtractedData, isPartner: boolean): HTMLElement => {
+export const renderWidget = (merchant: Merchant | null, data: ExtractedData | CartData, isPartner: boolean): HTMLElement => {
   const price = data.price;
+  const isCart = (data as CartData).isCart === true;
+  const cartData = isCart ? (data as CartData) : null;
+
   const options: Installment[] = [
     { periods: 4,  amount: price / 4 },
     { periods: 6,  amount: price / 6 },
@@ -210,7 +240,7 @@ export const renderWidget = (merchant: Merchant | null, data: ExtractedData, isP
   const header = el('div', { class: 'panel-header' });
   const closeBtn = el('button', { class: 'close-btn', text: '✕', attrs: { id: 'closePanel', type: 'button' } });
   header.appendChild(closeBtn);
-  header.appendChild(el('h3', { text: '💳 Paga con Kueski Pay' }));
+  header.appendChild(el('h3', { text: isCart ? '🛒 Paga tu carrito con Kueski Pay' : '💳 Paga con Kueski Pay' }));
   header.appendChild(el('p', { class: 'subtitle', text: productShort }));
 
   const priceBig = el('div', { class: 'price-big', text: fmt(options[0].amount) });
@@ -235,6 +265,27 @@ export const renderWidget = (merchant: Merchant | null, data: ExtractedData, isP
   panel.appendChild(header);
 
   const body = el('div', { class: 'panel-body' });
+
+  // Lista de items del carrito (solo en modo carrito)
+  if (cartData && cartData.items.length > 0) {
+    const cartBox = el('div', { class: 'cart-items' });
+    cartBox.appendChild(el('div', { class: 'cart-items-header', text: `${cartData.items.length} producto${cartData.items.length > 1 ? 's' : ''} en tu carrito` }));
+
+    cartData.items.forEach(item => {
+      const row = el('div', { class: 'cart-item-row' });
+      row.appendChild(el('div', { class: 'cart-item-qty', text: `×${item.quantity}` }));
+      row.appendChild(el('div', { class: 'cart-item-name', text: item.name }));
+      row.appendChild(el('div', { class: 'cart-item-price', text: fmt(item.price * item.quantity) }));
+      cartBox.appendChild(row);
+    });
+
+    const divider = el('div', { class: 'cart-divider' });
+    divider.appendChild(el('span', { text: 'Total del carrito' }));
+    divider.appendChild(el('span', { text: fmt(cartData.total) }));
+    cartBox.appendChild(divider);
+    body.appendChild(cartBox);
+  }
+
   options.forEach((o, i) => body.appendChild(buildOption(o, price, i === 0)));
   const ctaBtn = el('button', {
     class: 'cta-btn',
@@ -253,10 +304,10 @@ export const renderWidget = (merchant: Merchant | null, data: ExtractedData, isP
 
   // Botón flotante
   const mainBtn = el('button', { class: 'kueski-btn', attrs: { id: 'mainBtn', type: 'button' } });
-  mainBtn.innerHTML =
-    '<svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2">' +
-    '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
-  mainBtn.appendChild(document.createTextNode(' Pagar con Kueski '));
+  mainBtn.innerHTML = isCart
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>'
+    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
+  mainBtn.appendChild(document.createTextNode(isCart ? ' Pagar carrito con Kueski ' : ' Pagar con Kueski '));
   mainBtn.appendChild(el('span', { class: 'kueski-badge', text: `${fmt(options[0].amount)}/qna` }));
   shadow.appendChild(mainBtn);
 

@@ -275,11 +275,50 @@ export const extractPriceAndProduct = (): ExtractedData | null => {
 
 // ─── CART DETECTION ──────────────────────────────────────────────────────────
 
-const CART_URL_PATTERNS = ['/cart', '/carrito', '/basket', '/bolsa', '/shopping-bag', '/carro', '/mi-carrito', '/bag'];
+const CART_URL_PATTERNS = ['/cart', '/carrito', '/basket', '/bolsa', '/shopping-bag', '/carro', '/mi-carrito', '/bag', '/checkout'];
 
 export const isCartPage = (): boolean => {
   const url = location.pathname.toLowerCase();
   return CART_URL_PATTERNS.some(p => url.includes(p));
+};
+
+interface CartExtractor {
+  itemSelector: string;
+  nameSelectors: string[];
+  priceSelectors: string[];
+  quantitySelectors: string[];
+  totalSelectors: string[];
+}
+
+const MERCHANT_CART_EXTRACTORS: Record<string, CartExtractor> = {
+  'amazon.com.mx': {
+    itemSelector: '.sc-list-item[data-asin]',
+    nameSelectors: ['.sc-product-title span', '[class*="sc-item-content"] a', '.a-size-base-plus'],
+    priceSelectors: ['.sc-price', '.a-price .a-offscreen', '[class*="sc-item-price"]'],
+    quantitySelectors: ['[data-a-input-name*="quantity"] .a-dropdown-prompt', '.sc-action-quantity input'],
+    totalSelectors: ['#sc-subtotal-amount-activecart .a-size-medium', '#sc-subtotal-amount-buybox .a-size-medium', '[class*="sc-subtotal-amount"]'],
+  },
+  'mercadolibre.com.mx': {
+    itemSelector: '[class*="cart-row"], [class*="shopping-cart__item"], [class*="ui-row"]',
+    nameSelectors: ['[class*="item-title"]', '[class*="title-link"]', 'a[class*="title"]', 'h2'],
+    priceSelectors: ['[class*="price-tag-fraction"]', '[class*="andes-money-amount__fraction"]', '[class*="item-price"]'],
+    quantitySelectors: ['[class*="item-qty"] input', '[class*="quantity"] input', 'input[type="number"]'],
+    totalSelectors: ['[class*="summary__total"] [class*="price-tag-fraction"]', '[class*="cart-summary__prices"] [class*="andes-money-amount__fraction"]'],
+  },
+  'walmart.com.mx': {
+    itemSelector: '[data-testid="cart-line-item"], [class*="Cart-item"], [class*="cart-item"]',
+    nameSelectors: ['[class*="ItemTitle"]', '[class*="item-title"]', '[class*="product-title"]', 'a[class*="name"]'],
+    priceSelectors: ['[class*="ItemPrice"]', '[class*="item-price"]', '[itemprop="price"]'],
+    quantitySelectors: ['[class*="ItemQuantity"] input', '[data-testid*="quantity"] input', 'input[type="number"]'],
+    totalSelectors: ['[class*="cart-summary-item-total"]', '[data-testid="cart-summary-total"]', '[class*="order-summary-total"]'],
+  },
+  'liverpool.com.mx': {
+    itemSelector: '[class*="cart-item"], [class*="CartItem"], [class*="minicart-product"]',
+    nameSelectors: ['[class*="product-name"]', '[class*="item-name"]', 'a[class*="name"]', 'span[class*="name"]'],
+    priceSelectors: ['[class*="prices-price"]', '[class*="item-price"]', '[class*="product-price"]'],
+    quantitySelectors: ['[class*="quantity-value"]', '[class*="item-qty"]', 'input[type="number"]'],
+    totalSelectors: ['[class*="cart-totals-total"]', '[class*="order-total"]', '[class*="totals-total"]'],
+  },
 };
 
 const CART_TOTAL_SELECTORS = [
@@ -306,33 +345,86 @@ const CART_ITEM_SELECTORS = [
   '[class*="line-item" i]',
 ];
 
-export const extractCart = (): CartData | null => {
-  let total: number | null = null;
-  for (const sel of CART_TOTAL_SELECTORS) {
+const queryTextIn = (root: Element, selectors: string[]): string | null => {
+  for (const sel of selectors) {
     try {
-      const el = document.querySelector(sel);
-      if (!el) continue;
-      const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
-      if (prices.length > 0) { total = Math.max(...prices); break; }
+      const node = root.querySelector(sel);
+      const text = node?.getAttribute('content') ?? node?.textContent?.trim();
+      if (text) return text;
     } catch { /* selector inválido */ }
   }
+  return null;
+};
 
+const extractItemsFromSelector = (
+  containerSel: string,
+  cfg: Pick<CartExtractor, 'nameSelectors' | 'priceSelectors' | 'quantitySelectors'>,
+): CartItem[] => {
+  const containers = document.querySelectorAll(containerSel);
+  if (containers.length === 0) return [];
   const items: CartItem[] = [];
-  for (const sel of CART_ITEM_SELECTORS) {
-    try {
-      const els = document.querySelectorAll(sel);
-      if (els.length === 0) continue;
-      els.forEach(el => {
-        const nameEl = el.querySelector('a, [class*="name" i], [class*="title" i], [class*="nombre" i]');
-        const name = nameEl?.textContent?.trim() ?? '';
+  containers.forEach(container => {
+    const name = queryTextIn(container, cfg.nameSelectors)?.replace(/\s+/g, ' ').trim() ?? '';
+    const priceText = queryTextIn(container, cfg.priceSelectors) ?? container.textContent ?? '';
+    const prices = parseAllPrices(priceText).filter(isSanePrice);
+    const price = prices.length > 0 ? Math.min(...prices) : 0;
+    const qtyEl = container.querySelector(cfg.quantitySelectors.join(', ')) as HTMLInputElement | null;
+    const quantity = qtyEl ? (parseInt((qtyEl.value || qtyEl.textContent) ?? '1', 10) || 1) : 1;
+    if (name && price > 0) items.push({ name: name.slice(0, 80), price, quantity });
+  });
+  return items;
+};
+
+export const extractCart = (): CartData | null => {
+  const hostname = location.hostname.toLowerCase();
+  const merchantKey = Object.keys(MERCHANT_CART_EXTRACTORS).find(k => hostname === k || hostname.endsWith('.' + k));
+  const merchantCfg = merchantKey ? MERCHANT_CART_EXTRACTORS[merchantKey] : undefined;
+
+  // Intentar extractor específico del merchant primero
+  let items: CartItem[] = [];
+  let total: number | null = null;
+
+  if (merchantCfg) {
+    items = extractItemsFromSelector(merchantCfg.itemSelector, merchantCfg);
+    for (const sel of merchantCfg.totalSelectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (!el) continue;
         const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
-        const price = prices.length > 0 ? Math.min(...prices) : 0;
-        const qtyEl = el.querySelector('[class*="quantity" i], [class*="cantidad" i], input[type="number"]') as HTMLInputElement | null;
-        const quantity = qtyEl ? (parseInt(qtyEl.value || qtyEl.textContent || '1', 10) || 1) : 1;
-        if (name && price > 0) items.push({ name: name.slice(0, 80), price, quantity });
-      });
-      if (items.length > 0) break;
-    } catch { /* selector inválido */ }
+        if (prices.length > 0) { total = Math.max(...prices); break; }
+      } catch { /* selector inválido */ }
+    }
+  }
+
+  // Fallback genérico si el merchant específico no encontró nada
+  if (items.length === 0) {
+    for (const sel of CART_ITEM_SELECTORS) {
+      try {
+        const els = document.querySelectorAll(sel);
+        if (els.length === 0) continue;
+        els.forEach(el => {
+          const nameEl = el.querySelector('a, [class*="name" i], [class*="title" i], [class*="nombre" i]');
+          const name = nameEl?.textContent?.trim() ?? '';
+          const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
+          const price = prices.length > 0 ? Math.min(...prices) : 0;
+          const qtyEl = el.querySelector('[class*="quantity" i], [class*="cantidad" i], input[type="number"]') as HTMLInputElement | null;
+          const quantity = qtyEl ? (parseInt((qtyEl.value || qtyEl.textContent) ?? '1', 10) || 1) : 1;
+          if (name && price > 0) items.push({ name: name.slice(0, 80), price, quantity });
+        });
+        if (items.length > 0) break;
+      } catch { /* selector inválido */ }
+    }
+  }
+
+  if (total === null) {
+    for (const sel of CART_TOTAL_SELECTORS) {
+      try {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const prices = parseAllPrices(el.textContent ?? '').filter(isSanePrice);
+        if (prices.length > 0) { total = Math.max(...prices); break; }
+      } catch { /* selector inválido */ }
+    }
   }
 
   if (!total && items.length > 0) total = items.reduce((s, i) => s + i.price * i.quantity, 0);

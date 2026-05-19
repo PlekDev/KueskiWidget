@@ -3,7 +3,7 @@ import kueskiLogo from '../../../assets/kueski-logo.png';
 import {
   Zap, X, Store, ExternalLink, TrendingDown, Check, Tag,
   LayoutTemplate, Copy, Info, Wallet, Bell, CheckCircle, Loader2,
-  ShoppingCart, ArrowRight, RefreshCw
+  ShoppingCart, ArrowRight, RefreshCw, CreditCard
 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -14,7 +14,7 @@ import { supabase } from 'shared/supabase';
 import { PromotionMapper, MerchantMapper, KueskiUserMapper } from 'shared/mappers';
 import type { Promotion, Merchant, KueskiUser } from 'shared/models';
 
-type Tab = 'panel' | 'pago' | 'precios' | 'cupones';
+type Tab = 'panel' | 'pago' | 'precios' | 'cupones' | 'tarjeta';
 type PayFlow = 'options' | 'form' | 'loading' | 'success';
 
 const formatCurrency = (amount: number) =>
@@ -24,6 +24,21 @@ const genCvv = () => {
   const slot = Math.floor(Date.now() / 30_000);
   return String((slot * 7919 + 1337) % 900 + 100);
 };
+
+// ─── Cupones de respaldo (se muestran cuando Supabase no tiene promos) ────────
+const FALLBACK_PROMOS = [
+  { id: 'f1', code: 'KUESKI10', description: '10% de descuento en tu primera compra con Kueski Pay', discountType: 'percentage', isVerified: true, expiresAt: null },
+  { id: 'f2', code: 'ENVIOGRATIS', description: 'Envío gratis en compras mayores a $500 MXN en tiendas seleccionadas', discountType: 'shipping', isVerified: true, expiresAt: null },
+  { id: 'f3', code: 'CASHBACK2', description: '2% de cashback en todas tus compras con Kueski Pay', discountType: 'percentage', isVerified: true, expiresAt: null },
+  { id: 'f4', code: 'BIENVENIDO', description: 'Descuento de $100 MXN en tu primera compra financiada', discountType: 'fixed', isVerified: false, expiresAt: null },
+];
+
+// ─── Tiendas partner hardcodeadas (siempre visibles aunque Supabase esté vacío) ─
+const HARDCODED_STORES = [
+  { id: 'h1', name: 'Walmart', domain: 'walmart.com.mx', cashbackPercent: 0, category: 'Supermercado · Retail' },
+  { id: 'h2', name: 'Liverpool', domain: 'liverpool.com.mx', cashbackPercent: 0, category: 'Departamental · Moda' },
+  { id: 'h3', name: 'Coppel', domain: 'coppel.com', cashbackPercent: 0, category: 'Retail · Hogar' },
+];
 
 // ─── Price comparison (generada desde merchants de Supabase) ─────────────────
 interface PriceResult {
@@ -94,7 +109,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [authLoading, setAuthLoading] = useState(false);
 
   // ─── Producto / carrito detectado de la página activa ───────────────────────
-  const [product, setProduct] = useState<{ name: string; price: number; isCart?: boolean; cartItems?: { name: string; quantity: number; price: number }[] } | null>(null);
+  const [product, setProduct] = useState<{ name: string; price: number; isCart?: boolean; isPartner?: boolean; cartItems?: { name: string; quantity: number; price: number }[] } | null>(null);
   const price = product?.price ?? 0;
 
   const [cvv, setCvv] = useState(genCvv);
@@ -167,6 +182,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               name: response.productName,
               price: response.price,
               isCart: response.isCart ?? false,
+              isPartner: response.isPartner ?? false,
               cartItems: response.items ?? [],
             });
           }
@@ -334,20 +350,20 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                 <Zap className="h-3.5 w-3.5 fill-yellow-300" />
                 Mejor Opción · {selectedPeriods} quincenas a 0% interés
               </div>
-              <div className="flex justify-between items-center">
-                <div>
-                  <span className="text-2xl font-extrabold text-white">{formatCurrency(selectedOption.amount)}</span>
-                  <span className="text-white/80 text-xs ml-1">/ quincena</span>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-white/70">{product?.isCart ? 'Total carrito' : 'Total producto'}</div>
-                  <div className="text-sm font-bold text-white">{formatCurrency(price)}</div>
-                </div>
-                <Badge className="bg-[#54C08B] text-white hover:bg-[#54C08B] font-bold border-none px-2 py-0.5 text-xs">
+              <div className="flex items-baseline gap-1.5 mb-1.5">
+                <span className="text-2xl font-extrabold text-white leading-none">{formatCurrency(selectedOption.amount)}</span>
+                <span className="text-white/70 text-xs">/ quincena</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/70">
+                  {product?.isCart ? 'Total carrito' : 'Total producto'}
+                  <span className="font-bold text-white ml-1">{formatCurrency(price)}</span>
+                </span>
+                <Badge className="bg-[#54C08B] text-white hover:bg-[#54C08B] font-bold border-none px-2 py-0.5 text-[10px] shrink-0">
                   0% interés
                 </Badge>
               </div>
-              <p className="text-white/60 text-[10px] mt-2 truncate">{product.name}</p>
+              <p className="text-white/50 text-[10px] mt-1.5 truncate">{product.name}</p>
             </>
           ) : (
             <div className="flex items-center gap-2 text-white/70 text-xs">
@@ -429,19 +445,24 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
 
             <Card className="p-3 border border-gray-200">
               <p className="text-xs font-bold text-gray-700 mb-2">Tiendas con Kueski Pay</p>
-              {merchants.map(m => (
-                <div key={m.id} className="flex justify-between items-center py-1.5 border-b border-gray-100 last:border-0">
-                  <div>
-                    <p className="text-xs font-medium text-gray-800">{m.name}</p>
-                    <p className="text-[10px] text-gray-400">{m.category}</p>
+              {(() => {
+                const supabaseDomains = new Set(merchants.map(m => m.domain));
+                const extra = HARDCODED_STORES.filter(s => !supabaseDomains.has(s.domain));
+                const allStores = [...merchants, ...extra];
+                return allStores.map(m => (
+                  <div key={m.id} className="flex justify-between items-center py-1.5 border-b border-gray-100 last:border-0">
+                    <div>
+                      <p className="text-xs font-medium text-gray-800">{m.name}</p>
+                      <p className="text-[10px] text-gray-400">{m.category}</p>
+                    </div>
+                    {m.cashbackPercent > 0 && (
+                      <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                        {m.cashbackPercent}% cashback
+                      </span>
+                    )}
                   </div>
-                  {m.cashbackPercent > 0 && (
-                    <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                      {m.cashbackPercent}% cashback
-                    </span>
-                  )}
-                </div>
-              ))}
+                ));
+              })()}
             </Card>
           </div>
         )}
@@ -493,6 +514,23 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <div className="flex justify-between text-xs border-t border-blue-200 pt-1.5">
                       <span className="text-gray-500">Total carrito</span>
                       <strong className="text-[#0075FF]">{formatCurrency(price)}</strong>
+                    </div>
+                  </div>
+                )}
+
+                {/* Banner tarjeta digital para sitios no afiliados */}
+                {product && !product.isPartner && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-3">
+                    <div className="bg-[#0075FF] p-1.5 rounded-lg shrink-0 mt-0.5">
+                      <CreditCard className="h-4 w-4 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-gray-900 mb-0.5">Puedes pagar con tu tarjeta digital Kueski</p>
+                      <p className="text-[10px] text-gray-500 leading-relaxed">Esta tienda no acepta Kueski Pay directamente. Usa tu tarjeta virtual en el checkout como si fuera una tarjeta de débito normal.</p>
+                      <button onClick={() => setActiveTab('tarjeta')}
+                        className="mt-1.5 text-[10px] font-bold text-[#0075FF] hover:underline">
+                        Ver mi tarjeta →
+                      </button>
                     </div>
                   </div>
                 )}
@@ -730,11 +768,9 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
               Códigos activos ({promotions.length})
             </p>
 
-            {promotions.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-6">No hay cupones disponibles por el momento.</p>
-            )}
-
-            {promotions.map((promo) => (
+            {(() => {
+              const visiblePromos = promotions.length > 0 ? promotions : FALLBACK_PROMOS;
+              return visiblePromos.map((promo) => (
               <div key={promo.id} className="border border-dashed border-gray-300 rounded-xl p-3 bg-white">
                 <div className="flex items-start justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -772,80 +808,135 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                   <p className="text-[10px] font-bold text-[#0075FF] uppercase">{promo.discountType}</p>
                 </div>
               </div>
-            ))}
+            ));
+            })()}
           </div>
         )}
 
         {/* ━━━ TAB: TARJETA VIRTUAL (Kueski Cast) ━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {!loadingData && activeTab === 'tarjeta' && (
-          <div className="space-y-4">
-            <div className="text-center mb-2">
-              <h3 className="font-bold text-base text-gray-900">Kueski Cast</h3>
-              <p className="text-xs text-gray-500">Paga en tiendas no afiliadas usando esta tarjeta virtual ligada a tu crédito Kueski.</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-[#001733] to-[#0075FF] rounded-2xl p-5 text-white shadow-lg relative overflow-hidden h-[180px] flex flex-col justify-between border border-[#0075FF]/30">
-              {/* Card visual elements */}
-              <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-              <div className="absolute -left-10 -bottom-10 w-32 h-32 bg-[#00E59B]/20 rounded-full blur-2xl"></div>
-
-              <div className="flex justify-between items-start relative z-10">
-                <div className="flex gap-1.5 items-center">
-                  <div className="bg-white p-1 rounded-sm"><img src={kueskiLogo} className="h-3 w-3" alt="" /></div>
-                  <span className="font-bold text-sm tracking-widest">Kueski</span>
-                </div>
-                <div className="bg-white/20 px-2 py-1 rounded text-[10px] font-mono tracking-widest uppercase">
-                  Virtual
-                </div>
+        {!loadingData && activeTab === 'tarjeta' && (() => {
+          const CARD_NUMBER = '5572 1234 5678 9012';
+          const CARD_EXPIRY = '12/28';
+          const circ = 2 * Math.PI * 9;
+          return (
+            <div className="space-y-3">
+              <div>
+                <h3 className="font-bold text-sm text-gray-900">Kueski Cast</h3>
+                <p className="text-[10px] text-gray-400">Úsala en cualquier tienda como si fuera una tarjeta de débito</p>
               </div>
 
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-10 h-7 bg-gradient-to-r from-yellow-200 to-yellow-400 rounded-md opacity-80"></div>
-                  <Zap className="h-4 w-4 text-white/50" />
-                </div>
+              {/* ── Tarjeta visual ─────────────────────────────────────── */}
+              <div className="relative rounded-2xl overflow-hidden shadow-xl"
+                style={{ height: 200, background: 'linear-gradient(135deg, #0E1214 0%, #1a2d3d 60%, #0E1214 100%)' }}>
 
-                <div className="font-mono text-xl tracking-[4px] mb-2 drop-shadow-md cursor-pointer hover:text-yellow-100 transition-colors"
-                  onClick={() => handleCopy('5572 1234 5678 9012')} title="Copiar tarjeta">
-                  5572 1234 5678 9012
-                </div>
+                {/* Glow verde superior-derecha */}
+                <div className="absolute rounded-full pointer-events-none"
+                  style={{ width: 200, height: 200, top: -80, right: -60,
+                    background: 'radial-gradient(circle, rgba(0,229,155,0.25) 0%, transparent 70%)' }} />
+                {/* Glow azul inferior-izquierda */}
+                <div className="absolute rounded-full pointer-events-none"
+                  style={{ width: 160, height: 160, bottom: -60, left: -40,
+                    background: 'radial-gradient(circle, rgba(0,117,255,0.2) 0%, transparent 70%)' }} />
+                {/* Línea gradiente decorativa */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
+                  style={{ background: 'linear-gradient(90deg, transparent, #00E59B, #0075FF, transparent)' }} />
 
-                <div className="flex justify-between items-end">
-                  <div className="font-bold text-xs uppercase tracking-wider">{kueskiUser?.fullName || 'USUARIO KUESKI'}</div>
-                  <div className="flex gap-4">
-                    <div>
-                      <div className="text-[8px] text-white/60 uppercase">Vence</div>
-                      <div className="font-mono text-xs">12/28</div>
+                <div className="relative z-10 p-5 h-full flex flex-col justify-between">
+                  {/* Header: logo + badge */}
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-white/10 backdrop-blur-sm p-1 rounded-md border border-white/10">
+                        <img src={kueskiLogo} className="h-4 w-4" alt="" />
+                      </div>
+                      <span className="font-bold text-white text-sm tracking-wide">Kueski</span>
                     </div>
-                    <div className="cursor-pointer hover:text-yellow-100" onClick={() => handleCopy(cvv)} title="Copiar CVV">
-                      <div className="text-[8px] text-white/60 uppercase">CVV</div>
-                      <div className="font-mono text-xs flex items-center gap-1">
-                        {cvv}
-                        <span className="text-[7px] text-white/40">{cvvTick}s</span>
+                    <span className="text-[9px] font-bold tracking-[2px] uppercase border border-white/20 text-white/50 px-2 py-0.5 rounded-full">
+                      VIRTUAL
+                    </span>
+                  </div>
+
+                  {/* Chip + número */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <div className="w-8 h-5 rounded"
+                        style={{ background: 'linear-gradient(135deg, #f6d365, #fda085)' }} />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-white font-bold tracking-[2px] text-[15px]">
+                        {CARD_NUMBER}
+                      </span>
+                      <button onClick={() => handleCopy(CARD_NUMBER)} title="Copiar número"
+                        className="shrink-0 text-white/40 hover:text-[#00E59B] transition-colors">
+                        {copiedCode === CARD_NUMBER
+                          ? <Check className="h-4 w-4 text-[#00E59B]" />
+                          : <Copy className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Footer: nombre + vence + CVV */}
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-[8px] text-white/35 uppercase tracking-widest mb-0.5">Titular</p>
+                      <p className="text-xs font-bold text-white">{kueskiUser?.fullName || 'Usuario Kueski'}</p>
+                    </div>
+                    <div className="flex gap-5 items-end">
+                      <div>
+                        <p className="text-[8px] text-white/35 uppercase tracking-widest mb-0.5">Vence</p>
+                        <p className="font-mono text-sm font-bold text-white">{CARD_EXPIRY}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] text-white/35 uppercase tracking-widest mb-0.5">CVV</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-mono text-sm font-bold text-white">{cvv}</p>
+                          <svg width="18" height="18" viewBox="0 0 24 24" style={{ transform: 'rotate(-90deg)' }}>
+                            <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5" />
+                            <circle cx="12" cy="12" r="9" fill="none" stroke="#00E59B" strokeWidth="2.5"
+                              strokeLinecap="round" strokeDasharray={circ}
+                              strokeDashoffset={circ * (1 - cvvTick / 30)} />
+                          </svg>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-              <div className="flex items-start gap-2">
-                <Info className="h-4 w-4 text-[#0075FF] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold mb-1">¿Cómo funciona?</p>
-                  <p className="text-blue-700 leading-tight">Copia los datos de la tarjeta dando clic sobre ellos. Úsalos como método de pago en cualquier tienda en línea como Mercado Libre. El monto se descontará de tu crédito disponible: <strong>{kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : ''}</strong>.</p>
-                </div>
+              {/* ── Botones de copia rápida ─────────────────────────── */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Número', value: CARD_NUMBER, id: CARD_NUMBER },
+                  { label: 'Vencimiento', value: CARD_EXPIRY, id: CARD_EXPIRY },
+                  { label: 'CVV', value: cvv, id: cvv },
+                ].map(f => (
+                  <button key={f.label} onClick={() => handleCopy(f.value)}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl p-3 border transition-all text-center ${
+                      copiedCode === f.id
+                        ? 'bg-green-50 border-green-300'
+                        : 'bg-gray-50 border-gray-200 hover:bg-[#f0fdf9] hover:border-[#00E59B]'
+                    }`}>
+                    {copiedCode === f.id
+                      ? <Check className="h-4 w-4 text-green-500" />
+                      : <Copy className="h-4 w-4 text-[#0075FF]" />}
+                    <span className={`text-[9px] font-bold ${copiedCode === f.id ? 'text-green-600' : 'text-gray-500'}`}>
+                      {copiedCode === f.id ? '¡Copiado!' : f.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Info ───────────────────────────────────────────── */}
+              <div className="rounded-xl p-3 border text-xs flex items-start gap-2"
+                style={{ background: 'linear-gradient(135deg, rgba(0,229,155,0.06), rgba(0,117,255,0.06))', borderColor: 'rgba(0,229,155,0.25)' }}>
+                <Info className="h-4 w-4 shrink-0 mt-0.5" style={{ color: '#00E59B' }} />
+                <p className="text-gray-600 leading-relaxed">
+                  Copia cada dato con los botones y pégalo en el formulario de la tienda. El CVV se renueva cada 30 segundos.
+                  Crédito disponible: <strong className="text-[#0075FF]">{kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : '—'}</strong>.
+                </p>
               </div>
             </div>
-
-            {copiedCode && (
-              <div className="bg-green-500 text-white text-xs text-center p-2 rounded-lg font-bold flex items-center justify-center gap-2 animate-in fade-in zoom-in duration-200">
-                <CheckCircle className="h-4 w-4" /> ¡Dato copiado al portapapeles!
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* ── FOOTER ────────────────────────────────────────────────────────── */}
