@@ -110,3 +110,7 @@ a ver cuando se dan cuenta que pongo cosas en cada commit xd
 <img width="300" height="300" alt="image" src="https://github.com/user-attachments/assets/72152f1f-266d-49b5-a419-a66e2cf9346c" />
 
 que ganas tengo de casarme con una mujer que me trate mal, asi como mi mama que me madreaba y luego me decia que me amaba sjsjsjsjs
+
+
+<img width="458" height="453" alt="image" src="https://github.com/user-attachments/assets/31470c26-0d9d-45d1-95f7-20867d02192a" />
+perros bastardos ando chambeando y sin comer. porque todo ta tan caro nms
