@@ -122,3 +122,5 @@ perros bastardos ando chambeando y sin comer. porque todo ta tan caro nms
 ![alt text](image.png)
 le vamos a poner a su nueva novia a erick en el readmen
 
+![alt text](image-1.png)
+los desarrolladores tambien aman con locura

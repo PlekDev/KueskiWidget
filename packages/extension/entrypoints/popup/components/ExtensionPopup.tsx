@@ -1,9 +1,14 @@
 import { useState, useEffect } from "react";
 import kueskiLogo from '../../../assets/kueski-logo.png';
+import amazonLogo from '../../../assets/stores/amazon.png';
+import mercadolibreLogo from '../../../assets/stores/mercadolibre.png';
+import walmartLogo from '../../../assets/stores/walmart.png';
+import liverpoolLogo from '../../../assets/stores/liverpool.png';
+import coppelLogo from '../../../assets/stores/coppel.png';
 import {
   Zap, X, Store, ExternalLink, TrendingDown, Check, Tag,
   LayoutTemplate, Copy, Info, Wallet, Bell, CheckCircle, Loader2,
-  ShoppingCart, ArrowRight, RefreshCw, CreditCard, AlertCircle
+  ShoppingCart, ArrowRight, CreditCard, AlertCircle, Search
 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -51,57 +56,46 @@ const HARDCODED_STORES = [
   { id: 'h3', name: 'Coppel', domain: 'coppel.com', cashbackPercent: 0, category: 'Retail · Hogar' },
 ];
 
-// ─── Price comparison (generada desde merchants de Supabase) ─────────────────
-interface PriceResult {
-  store: string;
-  price: number;
-  shipping: string;
-  cashback: string;
-  inStock: boolean;
+// ─── Links de búsqueda real de precios ───────────────────────────────────────
+// No inventamos precios (una extensión no puede leer precios de Google/Amazon por
+// CORS y bloqueo de bots). En vez de eso abrimos la búsqueda REAL del producto en
+// cada tienda para que el usuario vea el precio actual en la fuente.
+interface StoreLink {
+  name: string;
+  logo: string;
   url: string;
-  flag: string;
 }
 
-const buildComparisons = (basePrice: number, productName: string, merchants: Merchant[]): PriceResult[] => {
-  const variance = (pct: number) => Math.round(basePrice * (1 + pct / 100));
-  const flagMap: Record<string, string> = {
-    'liverpool.com.mx':  '🔴',
-    'elektra.com.mx':    '⚡',
-    'officedepot.com.mx':'📦',
-    'mx.puma.com':       '🐾',
-    'amazon.com.mx':     '🇲🇽',
-    'mercadolibre.com.mx':'🛒',
-  };
-  const variances = [-3, -8, 2, 8, 12, -12];
+// Limpia símbolos de marca (™ ® ©) y espacios extra que ensucian la búsqueda.
+const cleanQuery = (s: string) =>
+  s.replace(/[™®©]/g, '').replace(/\s+/g, ' ').trim();
 
-  const fromDB: PriceResult[] = merchants.map((m, i) => ({
-    store:    m.name,
-    price:    variance(variances[i] ?? 0),
-    shipping: 'Ver tienda',
-    cashback: m.cashbackPercent > 0
-      ? formatCurrency(variance(variances[i] ?? 0) * (m.cashbackPercent / 100))
-      : '—',
-    inStock: true,
-    url:     `https://${m.domain}/search?q=${encodeURIComponent(productName)}`,
-    flag:    flagMap[m.domain] ?? '🏪',
-  }));
-
-  // Siempre incluir Amazon como referencia base
+const buildStoreLinks = (productName: string): StoreLink[] => {
+  const clean = cleanQuery(productName);
+  const q    = encodeURIComponent(clean);
+  const dash = encodeURIComponent(clean.replace(/\s+/g, '-'));
   return [
-    { store: 'Amazon MX', price: basePrice, shipping: 'Gratis Prime',
-      cashback: formatCurrency(basePrice * 0.025), inStock: true,
-      url: `https://www.amazon.com.mx/s?k=${encodeURIComponent(productName)}`, flag: '🇲🇽' },
-    ...fromDB,
+    { name: 'Amazon MX',    logo: amazonLogo,       url: `https://www.amazon.com.mx/s?k=${q}` },
+    { name: 'MercadoLibre', logo: mercadolibreLogo, url: `https://listado.mercadolibre.com.mx/${dash}` },
+    { name: 'Walmart',      logo: walmartLogo,      url: `https://www.walmart.com.mx/search?q=${q}` },
+    { name: 'Liverpool',    logo: liverpoolLogo,    url: `https://www.liverpool.com.mx/tienda/busqueda?s=${q}` },
+    { name: 'Coppel',       logo: coppelLogo,       url: `https://www.google.com/search?q=${q}+site:coppel.com` },
   ];
 };
+
+// Búsqueda dentro de un dominio (para tiendas asociadas de Supabase cuyo path de
+// búsqueda no conocemos). Google site: siempre cae en algo útil.
+const siteSearchUrl = (domain: string, productName: string) =>
+  `https://www.google.com/search?q=${encodeURIComponent(cleanQuery(productName))}+site:${domain}`;
+
+const googleShoppingUrl = (productName: string) =>
+  `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(cleanQuery(productName))}`;
 
 export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
   const [activeTab, setActiveTab]         = useState<Tab>('pago');
   const [payFlow, setPayFlow]             = useState<PayFlow>('options');
   const [selectedPeriods, setSelectedPeriods] = useState(4);
   const [copiedCode, setCopiedCode]       = useState<string | null>(null);
-  const [loadingPrices, setLoadingPrices] = useState(false);
-  const [pricesLoaded, setPricesLoaded]   = useState(false);
 
   // ─── Supabase state ──────────────────────────────────────────────────────
   const [promotions, setPromotions]   = useState<Promotion[]>([]);
@@ -237,15 +231,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     setPayFlow('options');
   };
 
-  // ─── Precios: se cargan al abrir el tab ─────────────────────────────────
-  useEffect(() => {
-    if (activeTab === 'precios' && !pricesLoaded && merchants.length > 0) {
-      setLoadingPrices(true);
-      setTimeout(() => { setLoadingPrices(false); setPricesLoaded(true); }, 1200);
-    }
-  }, [activeTab, merchants]);
-
-  const comparisons = buildComparisons(price, product?.name ?? '', merchants);
+  const storeLinks = buildStoreLinks(product?.name ?? '');
 
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code).catch(() => {});
@@ -722,72 +708,83 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
         )}
         {!loadingData && activeTab === 'precios' && !!product && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs font-bold text-gray-700">Comparando: {product.name.slice(0, 28)}…</p>
-              <button onClick={() => { setPricesLoaded(false); setLoadingPrices(true); setTimeout(() => { setLoadingPrices(false); setPricesLoaded(true); }, 1000); }}
-                className="text-[#0075FF] text-[10px] flex items-center gap-1 font-semibold">
-                <RefreshCw className="h-3 w-3" /> Actualizar
-              </button>
+            <div>
+              <p className="text-xs font-bold text-gray-700">Buscar precios de:</p>
+              <p className="text-xs text-gray-500 truncate">{product.name}</p>
             </div>
 
-            {loadingPrices ? (
-              <div className="flex flex-col items-center py-10 gap-3 text-gray-400">
-                <div className="w-8 h-8 border-[3px] border-blue-200 border-t-[#0075FF] rounded-full animate-spin" />
-                <p className="text-xs">Buscando mejores precios…</p>
-              </div>
-            ) : (
-              <>
-                {(() => {
-                  const best = comparisons.filter(c => c.inStock).sort((a, b) => a.price - b.price)[0];
-                  const savings = price - best.price;
-                  return savings > 0 ? (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-800">
-                      <p className="font-bold">💡 Mejor precio: {best.store}</p>
-                      <p className="mt-0.5">Ahorras <strong>{formatCurrency(savings)}</strong> vs. Amazon</p>
-                    </div>
-                  ) : null;
-                })()}
-
-                {comparisons.map((item, i) => (
-                  <Card key={i} className={`p-3 rounded-xl border ${!item.inStock ? 'opacity-60' : ''} ${i === 0 ? 'border-[#0075FF]/40 bg-blue-50/30' : 'border-gray-200'}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{item.flag}</span>
-                        <div>
-                          <span className="font-semibold text-sm text-gray-900">{item.store}</span>
-                          {i === 0 && <span className="ml-1.5 text-[10px] bg-[#0075FF] text-white px-1.5 py-0.5 rounded font-bold">Actual</span>}
-                        </div>
-                      </div>
-                      <a href={item.url} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-gray-700">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <p className="text-gray-400 text-[10px]">Precio</p>
-                        <p className="font-extrabold text-gray-900">{formatCurrency(item.price)}</p>
-                        {item.price < price && (
-                          <p className="text-green-600 text-[10px] font-bold">▼ {formatCurrency(price - item.price)}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-[10px]">Envío</p>
-                        <p className="font-semibold text-gray-700">{item.shipping}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-400 text-[10px]">Cashback</p>
-                        <p className="font-semibold text-[#54C08B]">{item.cashback}</p>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700">
-                  <p className="font-bold mb-1">💳 Con Kueski Pay en cualquier tienda</p>
-                  <p>Financia en {selectedPeriods} quincenas de <strong>{formatCurrency(selectedOption.amount)}</strong> a 0% interés.</p>
+            {/* CTA principal: Google Shopping compara todas las tiendas */}
+            <a
+              href={googleShoppingUrl(product.name)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between gap-2 rounded-xl p-3 bg-gradient-to-br from-[#0050CC] to-[#0075FF] text-white shadow-sm hover:opacity-95 transition-opacity"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="bg-white/20 p-1.5 rounded-lg h-fit">
+                  <Search className="h-4 w-4" />
                 </div>
-              </>
+                <div>
+                  <p className="font-bold text-sm leading-tight">Comparar en Google Shopping</p>
+                  <p className="text-[11px] text-blue-100">Ve el precio real en todas las tiendas</p>
+                </div>
+              </div>
+              <ExternalLink className="h-4 w-4 shrink-0" />
+            </a>
+
+            {/* Tiendas directas */}
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">Buscar en tienda</p>
+              <div className="space-y-2">
+                {storeLinks.map((s) => (
+                  <a
+                    key={s.name}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-2 rounded-xl p-3 border border-gray-200 bg-white hover:border-[#0075FF]/40 hover:bg-blue-50/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <img src={s.logo} alt={s.name} className="h-6 w-6 rounded object-contain" />
+                      <span className="font-semibold text-sm text-gray-900">{s.name}</span>
+                    </div>
+                    <span className="flex items-center gap-1 text-[#0075FF] text-[11px] font-semibold">
+                      Ver precio <ExternalLink className="h-3.5 w-3.5" />
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* Tiendas asociadas que aceptan Kueski Pay (desde Supabase) */}
+            {merchants.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
+                  Aceptan Kueski Pay
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {merchants.map((m) => (
+                    <a
+                      key={m.id}
+                      href={siteSearchUrl(m.domain, product.name)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 border border-gray-200 rounded-full px-2.5 py-1 hover:border-[#0075FF]/40 hover:text-[#0075FF] transition-colors"
+                    >
+                      {m.name}
+                      {m.cashbackPercent > 0 && (
+                        <span className="text-[#54C08B] font-bold">· {m.cashbackPercent}%</span>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </div>
             )}
+
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700">
+              <p className="font-bold mb-1">Con Kueski Pay en cualquier tienda</p>
+              <p>Financia en {selectedPeriods} quincenas de <strong>{formatCurrency(selectedOption.amount)}</strong> a 0% interés.</p>
+            </div>
           </div>
         )}
 
