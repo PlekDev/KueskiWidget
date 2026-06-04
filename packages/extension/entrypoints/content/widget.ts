@@ -1,5 +1,6 @@
 import type { Merchant } from 'shared/models';
 import type { CartData, ExtractedData } from './types';
+import kueskiLogo from '../../assets/kueski-logo.png';
 
 const fmt = (n: number) =>
   '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -20,6 +21,11 @@ const STYLES = `
   }
   .kueski-btn:hover { transform: scale(1.05); box-shadow: 0 6px 28px rgba(0,117,255,0.6); }
   .kueski-btn svg { flex-shrink: 0; }
+  .kueski-btn-logo {
+    width: 26px; height: 26px; flex-shrink: 0;
+    background: #fff; border-radius: 50%;
+    padding: 3px; object-fit: contain;
+  }
   .kueski-badge {
     background: #00E59B; color: #0a1628; font-size: 11px;
     font-weight: 800; padding: 2px 8px; border-radius: 20px;
@@ -84,7 +90,12 @@ const STYLES = `
     background: linear-gradient(135deg, #0050CC 0%, #0075FF 100%);
     padding: 16px; color: white; position: relative;
   }
-  .panel-header h3 { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+  .panel-header h3 { font-size: 14px; font-weight: 800; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .panel-title-logo {
+    width: 22px; height: 22px; flex-shrink: 0;
+    background: #fff; border-radius: 50%;
+    padding: 2px; object-fit: contain;
+  }
   .panel-header .subtitle { font-size: 11px; opacity: 0.85; }
   .panel-header .price-big { font-size: 26px; font-weight: 900; margin: 8px 0 2px; }
   .panel-header .price-label { font-size: 11px; opacity: 0.8; }
@@ -240,7 +251,10 @@ export const renderWidget = (merchant: Merchant | null, data: ExtractedData | Ca
   const header = el('div', { class: 'panel-header' });
   const closeBtn = el('button', { class: 'close-btn', text: '✕', attrs: { id: 'closePanel', type: 'button' } });
   header.appendChild(closeBtn);
-  header.appendChild(el('h3', { text: isCart ? '🛒 Paga tu carrito con Kueski Pay' : '💳 Paga con Kueski Pay' }));
+  const title = el('h3');
+  title.appendChild(el('img', { class: 'panel-title-logo', attrs: { src: kueskiLogo, alt: 'Kueski' } }));
+  title.appendChild(document.createTextNode(isCart ? 'Paga tu carrito con Kueski Pay' : 'Paga con Kueski Pay'));
+  header.appendChild(title);
   header.appendChild(el('p', { class: 'subtitle', text: productShort }));
 
   const priceBig = el('div', { class: 'price-big', text: fmt(options[0].amount) });
@@ -304,9 +318,10 @@ export const renderWidget = (merchant: Merchant | null, data: ExtractedData | Ca
 
   // Botón flotante
   const mainBtn = el('button', { class: 'kueski-btn', attrs: { id: 'mainBtn', type: 'button' } });
-  mainBtn.innerHTML = isCart
-    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>'
-    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
+  mainBtn.appendChild(el('img', {
+    class: 'kueski-btn-logo',
+    attrs: { src: kueskiLogo, alt: 'Kueski' },
+  }));
   mainBtn.appendChild(document.createTextNode(isCart ? ' Pagar carrito con Kueski ' : ' Pagar con Kueski '));
   mainBtn.appendChild(el('span', { class: 'kueski-badge', text: `${fmt(options[0].amount)}/qna` }));
   shadow.appendChild(mainBtn);

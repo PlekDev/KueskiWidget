@@ -3,7 +3,7 @@ import kueskiLogo from '../../../assets/kueski-logo.png';
 import {
   Zap, X, Store, ExternalLink, TrendingDown, Check, Tag,
   LayoutTemplate, Copy, Info, Wallet, Bell, CheckCircle, Loader2,
-  ShoppingCart, ArrowRight, RefreshCw, CreditCard
+  ShoppingCart, ArrowRight, RefreshCw, CreditCard, AlertCircle
 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -19,6 +19,17 @@ type PayFlow = 'options' | 'form' | 'loading' | 'success';
 
 const formatCurrency = (amount: number) =>
   amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
+
+// Próximo cobro: primera quincena a partir de hoy (15 días).
+const getNextPaymentDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 15);
+  return d;
+};
+const formatDateShort = (d: Date) =>
+  d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
+const formatDateLong = (d: Date) =>
+  d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
 
 const genCvv = () => {
   const slot = Math.floor(Date.now() / 30_000);
@@ -121,6 +132,8 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
     }, 1000);
     return () => clearInterval(id);
   }, []);
+
+  const nextPayment = getNextPaymentDate();
 
   const kueskiOptions = [
     { periods: 4,  amount: price / 4  },
@@ -399,24 +412,41 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
         {!loadingData && activeTab === 'panel' && (
           <div className="space-y-3">
             <Card className="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 text-white border-0">
-              <p className="text-xs text-gray-400 mb-1">Crédito Disponible</p>
-              <p className="text-3xl font-extrabold mb-3">
-                {kueskiUser ? formatCurrency(kueskiUser.creditAvailable) : '$ 1923'}
-              </p>
-              <div className="grid grid-cols-2 gap-3 border-t border-gray-700 pt-3">
-                <div>
-                  <p className="text-xs text-gray-400">Usado</p>
-                  <p className="font-bold text-[#54C08B]">
-                    {kueskiUser ? formatCurrency(kueskiUser.creditUsed) : '$ 782'}
+              {kueskiUser ? (
+                <>
+                  <p className="text-xs text-gray-400 mb-1">Crédito Disponible</p>
+                  <p className="text-3xl font-extrabold mb-3">
+                    {formatCurrency(kueskiUser.creditAvailable)}
                   </p>
+                  <div className="grid grid-cols-2 gap-3 border-t border-gray-700 pt-3">
+                    <div>
+                      <p className="text-xs text-gray-400">Usado</p>
+                      <p className="font-bold text-[#54C08B]">
+                        {formatCurrency(kueskiUser.creditUsed)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Límite</p>
+                      <p className="font-bold">
+                        {formatCurrency(kueskiUser.creditLimit)}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-start gap-3 py-1">
+                  <div className="bg-gray-700/60 p-2 rounded-full h-fit">
+                    <AlertCircle className="h-5 w-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold mb-0.5">Sin línea de crédito</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      No encontramos una línea Kueski asociada a tu correo.
+                      Verifica que tu cuenta esté registrada y activa.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-400">Límite</p>
-                  <p className="font-bold">
-                    {kueskiUser ? formatCurrency(kueskiUser.creditLimit) : '$ 7433'}
-                  </p>
-                </div>
-              </div>
+              )}
             </Card>
 
             {kueskiUser && (
@@ -433,7 +463,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                 <div>
                   <p className="font-bold text-gray-900 text-sm">Próximo pago</p>
                   <p className="text-xs text-gray-600 mt-0.5">
-                    {formatCurrency(selectedOption.amount)} vence el <strong>5 de Mayo</strong>
+                    {formatCurrency(selectedOption.amount)} vence el <strong>{formatDateShort(nextPayment)}</strong>
                   </p>
                 </div>
               </div>
@@ -665,7 +695,7 @@ export function ExtensionPopup({ onClose }: { onClose?: () => void }) {
                     <div className="flex justify-between"><span>Quincenas</span><strong>{selectedPeriods}</strong></div>
                     <div className="flex justify-between"><span>Pago quincenal</span><strong className="text-[#0075FF]">{formatCurrency(selectedOption.amount)}</strong></div>
                     <div className="flex justify-between"><span>Intereses</span><strong className="text-[#54C08B]">$0.00</strong></div>
-                    <div className="flex justify-between"><span>Primer cobro</span><strong>5 de Mayo, 2026</strong></div>
+                    <div className="flex justify-between"><span>Primer cobro</span><strong>{formatDateLong(nextPayment)}</strong></div>
                   </div>
                 </div>
                 <Button onClick={handleRedirect}

@@ -114,3 +114,11 @@ que ganas tengo de casarme con una mujer que me trate mal, asi como mi mama que 
 
 <img width="458" height="453" alt="image" src="https://github.com/user-attachments/assets/31470c26-0d9d-45d1-95f7-20867d02192a" />
 perros bastardos ando chambeando y sin comer. porque todo ta tan caro nms
+
+
+
+
+
+![alt text](image.png)
+le vamos a poner a su nueva novia a erick en el readmen
+
